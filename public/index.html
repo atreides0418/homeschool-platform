@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>한지윤의 공부방</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="particle-canvas"></canvas>
+
+  <div id="app">
+    <!-- Sidebar -->
+    <nav id="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-icon">🌿</span>
+        <span class="brand-name">한지윤의 공부방</span>
+      </div>
+      <ul class="nav-menu">
+        <li class="nav-item active" data-page="home">
+          <span class="nav-icon">🏠</span>
+          <span class="nav-label">홈</span>
+        </li>
+        <li class="nav-item" data-page="timer">
+          <span class="nav-icon">⏱</span>
+          <span class="nav-label">집중 타이머</span>
+        </li>
+        <li class="nav-item" data-page="schedule">
+          <span class="nav-icon">📋</span>
+          <span class="nav-label">오늘 일정</span>
+        </li>
+        <li class="nav-item" data-page="study">
+          <span class="nav-icon">📖</span>
+          <span class="nav-label">학습하기</span>
+        </li>
+        <li class="nav-item" data-page="games">
+          <span class="nav-icon">🎮</span>
+          <span class="nav-label">미니 게임</span>
+        </li>
+        <li class="nav-item" data-page="video">
+          <span class="nav-icon">🎬</span>
+          <span class="nav-label">강의 찾기</span>
+        </li>
+      </ul>
+
+      <button class="sidebar-settings-btn" onclick="showSettingsModal()" title="API 키 설정">⚙️</button>
+    </nav>
+
+    <!-- Main -->
+    <main id="main">
+      <canvas id="home-theme-canvas"></canvas>
+
+      <!-- ===== HOME PAGE ===== -->
+      <section id="page-home" class="page active">
+
+        <!-- 기본 레이아웃 (베이지 테마) -->
+        <div class="home-layout-default" id="home-layout-default">
+          <div class="home-header">
+            <div class="home-date-wrap">
+              <div class="home-date" id="home-date"></div>
+              <div class="home-greeting" id="home-greeting"></div>
+            </div>
+          </div>
+
+          <div class="calendar-card">
+            <div class="calendar-nav">
+              <button class="cal-nav-btn" id="cal-prev">&#9664;</button>
+              <span class="cal-title" id="cal-title"></span>
+              <button class="cal-nav-btn" id="cal-next">&#9654;</button>
+            </div>
+            <div class="calendar-weekdays">
+              <span class="sun">일</span>
+              <span>월</span><span>화</span><span>수</span><span>목</span><span>금</span>
+              <span class="sat">토</span>
+            </div>
+            <div class="calendar-grid" id="calendar-grid"></div>
+          </div>
+
+          <div class="home-quote-wrap">
+            <div class="home-quote-card" id="home-quote-card">
+              <div class="hq-mark">"</div>
+              <p class="hq-text" id="hq-text"></p>
+              <p class="hq-author" id="hq-author"></p>
+            </div>
+          </div>
+        </div>
+
+
+      </section>
+
+      <!-- ===== TIMER PAGE ===== -->
+      <section id="page-timer" class="page">
+        <div id="timer-wrapper" class="timer-wrapper theme-rain">
+          <canvas id="timer-bg-canvas"></canvas>
+          <div class="timer-content">
+
+            <div class="theme-selector">
+              <button class="theme-btn active" data-theme="rain">
+                <span class="theme-emoji">☕</span>
+                <span class="theme-name">빗소리 카페</span>
+              </button>
+              <button class="theme-btn" data-theme="library">
+                <span class="theme-emoji">📚</span>
+                <span class="theme-name">새벽 도서관</span>
+              </button>
+              <button class="theme-btn" data-theme="forest">
+                <span class="theme-emoji">🌿</span>
+                <span class="theme-name">숲속</span>
+              </button>
+              <button class="theme-btn" data-theme="space">
+                <span class="theme-emoji">🪐</span>
+                <span class="theme-name">우주 탐험</span>
+              </button>
+              <button class="theme-btn" data-theme="moonlit">
+                <span class="theme-emoji">🌙</span>
+                <span class="theme-name">달빛 창가</span>
+              </button>
+            </div>
+
+            <div class="timer-center">
+              <div class="timer-phase-label" id="timer-phase-label">준비</div>
+              <div class="timer-ring">
+                <svg class="timer-svg" viewBox="0 0 200 200">
+                  <circle class="ring-bg" cx="100" cy="100" r="88"/>
+                  <circle class="ring-fill" id="ring-fill" cx="100" cy="100" r="88"
+                    stroke-dasharray="553" stroke-dashoffset="0"/>
+                </svg>
+                <div class="timer-time-inner">
+                  <span class="timer-time" id="timer-time">25:00</span>
+                </div>
+              </div>
+              <div class="pomodoro-dots" id="pomodoro-dots"></div>
+            </div>
+
+            <div class="timer-controls">
+              <button class="timer-btn-secondary" id="btn-reset" onclick="resetTimer()" title="초기화">↺</button>
+              <button class="timer-btn-primary" id="btn-start" onclick="toggleTimer()">▶</button>
+              <button class="timer-btn-secondary pomodoro-toggle" id="btn-pomo" onclick="togglePomodoroMode()" title="뽀모도로">🍅</button>
+            </div>
+
+            <div class="timer-settings" id="timer-settings">
+              <div class="mode-badge" id="mode-badge">자유 모드</div>
+              <div class="time-slider-wrap" id="time-slider-wrap">
+                <input type="range" id="time-slider" min="5" max="120" value="25" step="5"
+                       oninput="updateCustomTime(this.value)">
+                <span class="slider-value" id="slider-value">25분</span>
+              </div>
+            </div>
+
+          </div><!-- end .timer-content -->
+
+          <!-- Sound toggle (bottom-right) -->
+          <div class="sound-toggle">
+            <div class="sound-volume-row" id="sound-volume-row" style="display:none">
+              <span class="vol-icon">🔈</span>
+              <input type="range" id="sound-volume-slider" class="sound-vol-slider"
+                     min="0" max="100" value="50" oninput="setSoundVolume(this.value)">
+              <span class="vol-icon">🔊</span>
+            </div>
+            <button class="sound-btn" id="sound-btn" onclick="toggleSound()">
+              <span id="sound-icon">🔇</span>
+              <span id="sound-label">소리 켜기</span>
+            </button>
+          </div>
+
+          <!-- Music widget (bottom-left) -->
+          <div class="music-widget" id="music-widget">
+            <div class="music-panel" id="music-panel" style="display:none">
+              <div class="music-panel-header">
+                <span class="music-panel-title">🎵 재생목록</span>
+                <button class="music-panel-close" onclick="closeMusicPanel()">✕</button>
+              </div>
+              <ul class="music-track-list" id="music-track-list"></ul>
+              <!-- YouTube URL 추가 -->
+              <div class="add-yt-row">
+                <input type="text" id="yt-url-input" class="yt-url-input"
+                       placeholder="YouTube URL 붙여넣으면 바로 재생돼요 ▶">
+                <button class="yt-add-btn" onclick="addYouTubeTrack()">추가</button>
+              </div>
+              <!-- 파일 추가 -->
+              <label class="add-file-label">
+                🗂 내 파일 추가 (MP3, WAV...)
+                <input type="file" id="music-file-input" accept="audio/*" multiple
+                       style="display:none" onchange="addMusicFiles(this)">
+              </label>
+            </div>
+
+            <div class="music-bar">
+              <button class="music-ctrl-btn" id="music-prev-btn" onclick="musicPlayer.prev()" title="이전 곡">⏮</button>
+              <button class="music-main-btn" id="music-main-btn" onclick="toggleMusic()">
+                <span id="music-icon">🎵</span>
+                <span id="music-label">음악 켜기</span>
+              </button>
+              <button class="music-ctrl-btn" id="music-next-btn" onclick="musicPlayer.next()" title="다음 곡">⏭</button>
+              <button class="music-ctrl-btn" onclick="toggleMusicPanel()" title="재생목록">☰</button>
+            </div>
+
+            <div class="music-now-playing" id="music-now-playing" style="display:none">
+              <div class="music-eq-bars">
+                <div class="music-eq-bar"></div>
+                <div class="music-eq-bar"></div>
+                <div class="music-eq-bar"></div>
+              </div>
+              <span id="music-track-name-display"></span>
+            </div>
+            <div class="music-seekbar" id="music-seekbar" style="display:none">
+              <span class="music-time" id="music-time-cur">0:00</span>
+              <input type="range" class="music-seek-input" id="music-seek-input"
+                     value="0" min="0" max="100" step="1"
+                     oninput="musicSeekInput(this.value)"
+                     onchange="musicSeekChange(this.value)">
+              <span class="music-time" id="music-time-total">0:00</span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ===== SCHEDULE PAGE ===== -->
+      <section id="page-schedule" class="page">
+        <div class="page-header">
+          <h1 class="page-title">오늘의 공부 계획</h1>
+          <p class="page-subtitle" id="schedule-date-label"></p>
+        </div>
+
+        <div class="schedule-layout">
+          <div class="schedule-left">
+            <div class="card schedule-form-card">
+              <h3 class="card-title">과목 추가</h3>
+              <div class="form-group">
+                <label class="form-label">과목명</label>
+                <input type="text" id="subject-input" class="form-input"
+                       placeholder="예: 수학, 영어, 한국사..."
+                       onkeypress="if(event.key==='Enter') document.getElementById('desc-input').focus()">
+              </div>
+              <div class="form-group">
+                <label class="form-label">오늘 할 내용</label>
+                <textarea id="desc-input" class="form-textarea" rows="3"
+                          placeholder="오늘 공부할 내용을 간단히 적어주세요..."
+                          onkeypress="if(event.key==='Enter'&&event.ctrlKey) addScheduleItem()"></textarea>
+              </div>
+              <button class="btn-primary" onclick="addScheduleItem()">+ 과목 추가하기</button>
+            </div>
+
+            <div class="schedule-list-wrap" id="schedule-list-wrap">
+              <div class="empty-state-small" id="schedule-empty">
+                과목을 추가해서 오늘의 계획을 세워보세요 📖
+              </div>
+              <ul class="schedule-list" id="schedule-list"></ul>
+            </div>
+
+            <button class="btn-action" id="ai-btn" onclick="fetchAIFeedback()" disabled>
+              ✨ 일정 완성 + AI 피드백 받기
+            </button>
+          </div>
+
+          <div class="schedule-right">
+            <div class="ai-panel" id="ai-panel">
+              <div class="ai-welcome-state" id="ai-welcome">
+                <div class="ai-avatar">🤖</div>
+                <h3>AI 공부 코치</h3>
+                <p>과목을 추가하고<br><b>「일정 완성」</b> 버튼을 누르면<br>맞춤 공부 팁과 동기부여 메시지를 드릴게요!</p>
+              </div>
+              <div class="ai-loading-state" id="ai-loading" style="display:none">
+                <div class="typing-dots">
+                  <span></span><span></span><span></span>
+                </div>
+                <p>일정을 분석하는 중이에요...</p>
+              </div>
+              <div class="ai-result-state" id="ai-result" style="display:none">
+                <div class="ai-result-header">
+                  <span class="ai-spark">✨</span>
+                  <h3>오늘의 공부 가이드</h3>
+                </div>
+                <div class="ai-tips" id="ai-tips"></div>
+                <div class="ai-motivation-box" id="ai-motivation"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CHECKLIST PAGE ===== -->
+      <section id="page-checklist" class="page">
+        <div class="page-header">
+          <h1 class="page-title">오늘 할 일</h1>
+          <div class="checklist-progress-wrap">
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
+            </div>
+            <span class="progress-text" id="progress-text">0 / 0 완료</span>
+          </div>
+        </div>
+
+        <div class="checklist-input-row">
+          <input type="text" id="checklist-input" class="checklist-new-input"
+                 placeholder="새로운 할 일을 입력하세요..."
+                 onkeypress="if(event.key==='Enter') addChecklistItem()">
+          <button class="btn-add-check" onclick="addChecklistItem()">추가</button>
+        </div>
+
+        <div class="checklist-items" id="checklist-items">
+          <div class="empty-state-check" id="checklist-empty">
+            <span class="empty-icon">🌟</span>
+            <p>할 일을 추가하면 하나씩 완성해나갈 수 있어요!</p>
+          </div>
+        </div>
+
+        <div class="all-done-banner" id="all-done-banner" style="display:none">
+          <span>🎉</span>
+          <span>모든 할 일 완료! 오늘도 정말 대단해요!</span>
+          <span>✨</span>
+        </div>
+      </section>
+
+      <!-- ===== STUDY PAGE ===== -->
+      <section id="page-study" class="page">
+
+        <!-- Subject list view -->
+        <div id="study-list-view">
+          <div class="page-header">
+            <h1 class="page-title">📖 학습하기</h1>
+            <p class="page-subtitle">오늘 공부할 과목을 선택하면 AI 선생님이 1:1로 도와드려요!</p>
+          </div>
+          <div id="study-subject-list">
+            <div class="empty-state-check" id="study-empty" style="display:none">
+              <span class="empty-icon">📚</span>
+              <p>먼저 「오늘 일정」에서 과목을 추가해주세요!<br>과목마다 전담 AI 선생님이 기다리고 있어요.</p>
+              <button class="study-goto-schedule-btn" onclick="navigate('schedule')">일정 추가하러 가기 →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat view -->
+        <div id="study-chat-view" style="display:none">
+          <div class="study-chat-header">
+            <button class="study-back-btn" onclick="backToStudyList()">← 뒤로</button>
+            <div class="study-chat-title-area">
+              <span id="study-chat-emoji" class="study-chat-emoji"></span>
+              <div>
+                <div class="study-chat-subject-name" id="study-chat-subject-name"></div>
+                <div class="study-chat-desc" id="study-chat-desc"></div>
+              </div>
+            </div>
+            <span class="study-role-badge" id="study-role-badge"></span>
+          </div>
+
+          <div class="study-chat-messages" id="study-chat-messages"></div>
+
+          <div class="study-chat-input-area">
+            <textarea
+              id="study-chat-input"
+              class="study-chat-input"
+              placeholder="선생님께 질문해보세요... (Enter 전송 / Shift+Enter 줄바꿈)"
+              rows="1"
+              onkeydown="studyInputKeydown(event)"
+            ></textarea>
+            <button class="study-send-btn" id="study-send-btn" onclick="sendStudyMessage()">↑</button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ===== GAMES PAGE ===== -->
+      <section id="page-games" class="page">
+        <div class="page-header">
+          <h1 class="page-title">🏀 농구 슛!</h1>
+          <p class="page-subtitle">꾹 눌러서 당기면 궤도가 표시돼요 — 골대는 넣을 때마다 움직여요!</p>
+        </div>
+        <div class="bball-wrap">
+          <canvas id="bball-canvas"></canvas>
+          <div class="game-hud">
+            <div class="game-stat">
+              <span class="game-stat-label">점수</span>
+              <span class="game-stat-val" id="bball-score">0</span>
+            </div>
+            <div class="game-stat">
+              <span class="game-stat-label">시도</span>
+              <span class="game-stat-val" id="bball-shots">0</span>
+            </div>
+            <div class="game-stat" id="bball-streak-stat" style="display:none">
+              <span class="game-stat-label">연속</span>
+              <span class="game-stat-val streak-val" id="bball-streak">0</span>
+            </div>
+            <button class="game-reset-btn" onclick="resetBball()">↺ 리셋</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== VIDEO SEARCH PAGE ===== -->
+      <section id="page-video" class="page">
+        <div class="vs-hero">
+          <div class="vs-hero-badge">🎬 강의 영상 찾기</div>
+          <h1 class="vs-hero-title">모르는 문제, 영상으로 해결해요</h1>
+          <p class="vs-hero-sub">교재명과 문제 번호를 입력하면 관련 강의를 바로 찾아드려요</p>
+
+          <div class="vs-search-card">
+            <div class="vs-inputs">
+              <div class="vs-input-group">
+                <label class="vs-label">📚 교재 이름</label>
+                <input id="vs-book" class="vs-input" type="text" placeholder="예: 쎈 수학 상" autocomplete="off">
+              </div>
+              <div class="vs-divider-v"></div>
+              <div class="vs-input-group">
+                <label class="vs-label">🔢 문제 번호</label>
+                <input id="vs-problem" class="vs-input" type="text" placeholder="예: 352번" autocomplete="off">
+              </div>
+            </div>
+            <button class="vs-search-btn" id="vs-search-btn" onclick="searchLectureVideos()">
+              <span class="vs-btn-icon">🔍</span>
+              <span>강의 찾기</span>
+            </button>
+          </div>
+
+          <div class="vs-chips" id="vs-chips"></div>
+        </div>
+
+        <div class="vs-results-wrap" id="vs-results-wrap" style="display:none">
+          <div class="vs-results-header">
+            <span class="vs-results-label" id="vs-results-label"></span>
+            <span class="vs-results-count" id="vs-results-count"></span>
+          </div>
+          <div class="vs-results-grid" id="vs-results-grid"></div>
+        </div>
+
+        <div class="vs-empty" id="vs-empty" style="display:none">
+          <div class="vs-empty-icon">🔭</div>
+          <p class="vs-empty-msg">검색 결과가 없어요. 교재명을 조금 다르게 입력해 보세요.</p>
+        </div>
+
+        <div class="vs-loading" id="vs-loading" style="display:none">
+          <div class="vs-spinner"></div>
+          <p>유튜브에서 강의를 찾고 있어요...</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- YouTube Mini Player (fixed, works on all pages) -->
+  <div id="yt-mini-player" class="yt-mini-player" style="display:none">
+    <div class="yt-mini-header">
+      <span class="yt-mini-title" id="yt-mini-title">유튜브 음악</span>
+      <div class="yt-mini-actions">
+        <button class="yt-mini-btn" id="yt-toggle-btn" onclick="toggleYTView()" title="최소화">⊟</button>
+        <button class="yt-mini-btn" onclick="stopYTAndClose()" title="닫기">✕</button>
+      </div>
+    </div>
+    <div id="yt-iframe-wrap" class="yt-iframe-wrap">
+      <iframe id="yt-iframe"
+              src=""
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowfullscreen
+              referrerpolicy="no-referrer-when-downgrade"
+              frameborder="0">
+      </iframe>
+    </div>
+  </div>
+
+  <!-- Date Popup -->
+  <div id="date-popup-overlay" class="popup-overlay" style="display:none" onclick="closeDatePopup(event)">
+    <div class="today-popup-card date-popup-card">
+      <div class="today-popup-header">
+        <div>
+          <span class="today-popup-title" id="date-popup-title">📅 날짜</span>
+          <span class="today-popup-count" id="date-popup-count"></span>
+        </div>
+        <button class="popup-close" onclick="closeDatePopup()">✕</button>
+      </div>
+      <div class="today-popup-body" id="date-popup-body"></div>
+      <div class="date-popup-add">
+        <input type="text" id="date-popup-subject" class="form-input" placeholder="과목명 (예: 수학, 영어...)"
+               onkeypress="if(event.key==='Enter') document.getElementById('date-popup-desc').focus()">
+        <input type="text" id="date-popup-desc" class="form-input" placeholder="할 내용 (선택사항)"
+               onkeypress="if(event.key==='Enter') addToDatePopup()" style="margin-top:6px">
+        <button class="btn-primary" onclick="addToDatePopup()" style="margin-top:8px;width:100%">+ 일정 추가</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Memo Star Button -->
+  <button id="memo-star-btn" class="memo-star-btn" onclick="toggleMemoPanel()" title="메모장">★</button>
+
+  <!-- Clover Motivation Button -->
+  <button id="clover-btn" class="clover-btn" onclick="openCloverModal()" title="동기부여 받기">🍀</button>
+
+  <!-- Memo Panel -->
+  <div id="memo-panel" class="memo-panel" style="display:none">
+    <div class="memo-panel-header">
+      <span class="memo-panel-title">✦ 나의 메모</span>
+      <span class="memo-char-count" id="memo-char-count">0자</span>
+      <button class="memo-panel-close" onclick="toggleMemoPanel()">✕</button>
+    </div>
+    <textarea
+      id="memo-textarea"
+      class="memo-textarea"
+      placeholder="✏️ 여기에 자유롭게 적어보세요&#10;생각, 아이디어, 중요한 것들...&#10;&#10;앱을 꺼도 내용이 유지돼요 🌿"
+      oninput="saveMemo(this.value)"
+    ></textarea>
+    <div class="memo-panel-footer">자동 저장됨 ✓</div>
+  </div>
+
+  <!-- Clover Motivation Modal -->
+  <div id="clover-modal" class="modal-overlay" style="display:none" onclick="cloverModalBgClick(event)">
+    <div class="modal-box clover-modal-box">
+      <h3 class="modal-title">🍀 나만의 동기부여</h3>
+      <p class="modal-desc">지금 마음속에 있는 것을 자유롭게 적어보세요.<br>AI가 따뜻한 응원 메시지를 보내드릴게요 💚</p>
+
+      <div id="clover-input-area">
+        <textarea id="clover-textarea" class="form-textarea clover-textarea" rows="4"
+          placeholder="오늘 힘든 점, 고민, 목표, 하고 싶은 말... 뭐든 괜찮아요 🌿"
+          onkeydown="if(event.ctrlKey&&event.key==='Enter') fetchCloverMotivation()"></textarea>
+        <div class="modal-actions" style="margin-top:14px">
+          <button class="btn-primary" onclick="fetchCloverMotivation()">✨ 동기부여 받기</button>
+          <button class="modal-cancel" onclick="closeCloverModal()">닫기</button>
+        </div>
+      </div>
+
+      <div id="clover-loading" style="display:none; text-align:center; padding:20px 0">
+        <div class="typing-dots"><span></span><span></span><span></span></div>
+        <p style="margin-top:14px;font-size:14px;color:var(--text-mid)">따뜻한 메시지를 준비하는 중이에요...</p>
+      </div>
+
+      <div id="clover-result" style="display:none">
+        <div class="clover-result-box" id="clover-result-text"></div>
+        <div class="modal-actions" style="margin-top:16px">
+          <button class="btn-primary" onclick="resetCloverModal()">다시 쓰기</button>
+          <button class="modal-cancel" onclick="closeCloverModal()">닫기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+      <h3 class="modal-title">⚙️ 설정</h3>
+
+      <!-- 테마 -->
+      <div class="settings-section">
+        <div class="settings-section-label">🎨 플랫폼 테마</div>
+        <div class="theme-picker-row">
+          <button class="theme-pick-btn active" id="theme-btn-default" data-theme="default" onclick="setAppTheme('default')">
+            <div class="theme-swatch" style="background:linear-gradient(135deg,#FDF6EC 50%,#C8956C 50%)"></div>
+            <span>따뜻한 베이지</span>
+          </button>
+          <button class="theme-pick-btn" id="theme-btn-sunset" data-theme="sunset" onclick="setAppTheme('sunset')">
+            <div class="theme-swatch" style="background:linear-gradient(180deg,#0a0318 0%,#5a1060 30%,#c83c18 60%,#f8d858 100%)"></div>
+            <span>노을빛 황혼</span>
+          </button>
+          <button class="theme-pick-btn" id="theme-btn-moonlit" data-theme="moonlit" onclick="setAppTheme('moonlit')">
+            <div class="theme-swatch" style="background:linear-gradient(135deg,#03040d 40%,#0a1428 70%,#c8d8f0 100%)"></div>
+            <span>달빛 창가</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="settings-divider"></div>
+
+      <!-- API 키 -->
+      <div class="settings-section">
+        <div class="settings-section-label">🔑 OpenAI API 키</div>
+        <p class="modal-desc" style="margin-bottom:10px">AI 피드백 기능을 사용하려면 OpenAI API 키가 필요해요.<br>키는 이 브라우저에만 저장되며 외부로 전송되지 않아요.</p>
+        <input type="password" id="api-key-input" class="form-input" placeholder="sk-proj-..." style="margin-bottom:12px">
+        <div class="settings-section-label" style="margin-top:16px">🎬 YouTube API 키</div>
+        <p class="modal-desc" style="margin-bottom:10px">강의 영상 찾기 기능에 사용돼요.</p>
+        <input type="password" id="yt-api-key-input" class="form-input" placeholder="AIza..." style="margin-bottom:12px">
+        <div class="modal-actions">
+          <button class="btn-primary" onclick="saveAPIKey()">저장하기</button>
+          <button class="modal-cancel" onclick="closeSettingsModal()">닫기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+
+</body>
+</html>
