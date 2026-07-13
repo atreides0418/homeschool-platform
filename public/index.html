@@ -6,70 +6,114 @@
   <title>한지윤의 공부방</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <canvas id="particle-canvas"></canvas>
 
   <div id="app">
-    <!-- Sidebar -->
+    <!-- ===================== SIDEBAR ===================== -->
     <nav id="sidebar">
       <div class="sidebar-brand">
         <span class="brand-icon">🌿</span>
-        <span class="brand-name">한지윤의 공부방</span>
+        <div class="brand-text">
+          <span class="brand-name">한지윤의 공부방</span>
+          <span class="brand-sub">오늘도 한 걸음씩</span>
+        </div>
       </div>
+
       <ul class="nav-menu">
         <li class="nav-item active" data-page="home">
-          <span class="nav-icon">🏠</span>
-          <span class="nav-label">홈</span>
+          <span class="nav-icon">🏠</span><span class="nav-label">홈</span>
         </li>
         <li class="nav-item" data-page="timer">
-          <span class="nav-icon">⏱</span>
-          <span class="nav-label">집중 타이머</span>
+          <span class="nav-icon">⏱️</span><span class="nav-label">집중 타이머</span>
         </li>
         <li class="nav-item" data-page="schedule">
-          <span class="nav-icon">📋</span>
-          <span class="nav-label">오늘 일정</span>
+          <span class="nav-icon">🗓️</span><span class="nav-label">오늘 일정</span>
         </li>
         <li class="nav-item" data-page="study">
-          <span class="nav-icon">📖</span>
-          <span class="nav-label">학습하기</span>
+          <span class="nav-icon">📖</span><span class="nav-label">학습하기</span>
+        </li>
+        <li class="nav-item" data-page="cards">
+          <span class="nav-icon">🃏</span><span class="nav-label">암기 카드</span>
+        </li>
+        <li class="nav-item" data-page="stats">
+          <span class="nav-icon">📊</span><span class="nav-label">공부 기록</span>
         </li>
         <li class="nav-item" data-page="games">
-          <span class="nav-icon">🎮</span>
-          <span class="nav-label">미니 게임</span>
+          <span class="nav-icon">🏀</span><span class="nav-label">미니 게임</span>
         </li>
         <li class="nav-item" data-page="video">
-          <span class="nav-icon">🎬</span>
-          <span class="nav-label">강의 찾기</span>
+          <span class="nav-icon">🎬</span><span class="nav-label">강의 찾기</span>
         </li>
       </ul>
 
-      <button class="sidebar-settings-btn" onclick="showSettingsModal()" title="API 키 설정">⚙️</button>
+      <div class="sidebar-footer">
+        <div class="sidebar-level" id="sidebar-level" onclick="navigate('stats')" title="공부 기록 보기">
+          <span class="sl-tree" id="sl-tree">🌱</span>
+          <div class="sl-info">
+            <span class="sl-level" id="sl-level">LV.1</span>
+            <div class="sl-bar"><div class="sl-bar-fill" id="sl-bar-fill" style="width:0%"></div></div>
+          </div>
+        </div>
+        <button class="sidebar-settings-btn" onclick="showSettingsModal()" title="설정">⚙️ <span>설정</span></button>
+      </div>
     </nav>
 
-    <!-- Main -->
+    <!-- ===================== MAIN ===================== -->
     <main id="main">
       <canvas id="home-theme-canvas"></canvas>
 
-      <!-- ===== HOME PAGE ===== -->
+      <!-- ===== HOME (dashboard) ===== -->
       <section id="page-home" class="page active">
+        <div class="home-hero">
+          <div class="home-date-wrap">
+            <div class="home-date" id="home-date"></div>
+            <div class="home-greeting" id="home-greeting"></div>
+          </div>
+        </div>
 
-        <!-- 기본 레이아웃 (베이지 테마) -->
-        <div class="home-layout-default" id="home-layout-default">
-          <div class="home-header">
-            <div class="home-date-wrap">
-              <div class="home-date" id="home-date"></div>
-              <div class="home-greeting" id="home-greeting"></div>
+        <!-- Stat tiles -->
+        <div class="home-stats-row">
+          <div class="hstat hstat-focus" onclick="navigate('timer')">
+            <span class="hstat-icon">⏱️</span>
+            <div class="hstat-body">
+              <span class="hstat-val" id="hstat-focus">0분</span>
+              <span class="hstat-label">오늘 집중</span>
             </div>
           </div>
+          <div class="hstat hstat-streak" onclick="navigate('stats')">
+            <span class="hstat-icon">🔥</span>
+            <div class="hstat-body">
+              <span class="hstat-val" id="hstat-streak">0일</span>
+              <span class="hstat-label">연속 공부</span>
+            </div>
+          </div>
+          <div class="hstat hstat-tasks">
+            <span class="hstat-icon">✅</span>
+            <div class="hstat-body">
+              <span class="hstat-val" id="hstat-tasks">0/0</span>
+              <span class="hstat-label">오늘 할 일</span>
+            </div>
+          </div>
+          <div class="hstat hstat-level" onclick="navigate('stats')">
+            <span class="hstat-icon" id="hstat-tree">🌱</span>
+            <div class="hstat-body">
+              <span class="hstat-val" id="hstat-level">LV.1</span>
+              <span class="hstat-label">성장 레벨</span>
+            </div>
+          </div>
+        </div>
 
-          <div class="calendar-card">
+        <div class="home-grid">
+          <!-- Calendar -->
+          <div class="hcard calendar-card">
             <div class="calendar-nav">
-              <button class="cal-nav-btn" id="cal-prev">&#9664;</button>
+              <button class="cal-nav-btn" id="cal-prev" aria-label="이전 달">‹</button>
               <span class="cal-title" id="cal-title"></span>
-              <button class="cal-nav-btn" id="cal-next">&#9654;</button>
+              <button class="cal-nav-btn" id="cal-next" aria-label="다음 달">›</button>
             </div>
             <div class="calendar-weekdays">
               <span class="sun">일</span>
@@ -79,19 +123,44 @@
             <div class="calendar-grid" id="calendar-grid"></div>
           </div>
 
-          <div class="home-quote-wrap">
-            <div class="home-quote-card" id="home-quote-card">
-              <div class="hq-mark">"</div>
+          <div class="home-side-col">
+            <!-- Today checklist widget -->
+            <div class="hcard checklist-card">
+              <div class="checklist-card-head">
+                <h3 class="hcard-title">☑️ 오늘 할 일</h3>
+                <span class="progress-text" id="progress-text">0 / 0 완료</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
+              </div>
+              <div class="checklist-input-row">
+                <input type="text" id="checklist-input" class="checklist-new-input"
+                       placeholder="할 일을 적고 Enter!"
+                       onkeypress="if(event.key==='Enter') addChecklistItem()">
+                <button class="btn-add-check" onclick="addChecklistItem()">추가</button>
+              </div>
+              <div class="checklist-items" id="checklist-items">
+                <div class="empty-state-check" id="checklist-empty">
+                  <span class="empty-icon">🌟</span>
+                  <p>할 일을 추가하면<br>하나씩 완성해나갈 수 있어요!</p>
+                </div>
+              </div>
+              <div class="all-done-banner" id="all-done-banner" style="display:none">
+                <span>🎉</span><span>모든 할 일 완료! 오늘도 정말 대단해요!</span><span>✨</span>
+              </div>
+            </div>
+
+            <!-- Quote -->
+            <div class="hcard home-quote-card" id="home-quote-card">
+              <div class="hq-mark">“</div>
               <p class="hq-text" id="hq-text"></p>
               <p class="hq-author" id="hq-author"></p>
             </div>
           </div>
         </div>
-
-
       </section>
 
-      <!-- ===== TIMER PAGE ===== -->
+      <!-- ===== TIMER ===== -->
       <section id="page-timer" class="page">
         <div id="timer-wrapper" class="timer-wrapper theme-rain">
           <canvas id="timer-bg-canvas"></canvas>
@@ -99,24 +168,19 @@
 
             <div class="theme-selector">
               <button class="theme-btn active" data-theme="rain">
-                <span class="theme-emoji">☕</span>
-                <span class="theme-name">빗소리 카페</span>
+                <span class="theme-emoji">☕</span><span class="theme-name">빗소리 카페</span>
               </button>
               <button class="theme-btn" data-theme="library">
-                <span class="theme-emoji">📚</span>
-                <span class="theme-name">새벽 도서관</span>
+                <span class="theme-emoji">📚</span><span class="theme-name">새벽 도서관</span>
               </button>
               <button class="theme-btn" data-theme="forest">
-                <span class="theme-emoji">🌿</span>
-                <span class="theme-name">숲속</span>
+                <span class="theme-emoji">🌿</span><span class="theme-name">숲속</span>
               </button>
               <button class="theme-btn" data-theme="space">
-                <span class="theme-emoji">🪐</span>
-                <span class="theme-name">우주 탐험</span>
+                <span class="theme-emoji">🪐</span><span class="theme-name">우주 탐험</span>
               </button>
               <button class="theme-btn" data-theme="moonlit">
-                <span class="theme-emoji">🌙</span>
-                <span class="theme-name">달빛 창가</span>
+                <span class="theme-emoji">🌙</span><span class="theme-name">달빛 창가</span>
               </button>
             </div>
 
@@ -130,6 +194,7 @@
                 </svg>
                 <div class="timer-time-inner">
                   <span class="timer-time" id="timer-time">25:00</span>
+                  <span class="timer-today-hint" id="timer-today-hint"></span>
                 </div>
               </div>
               <div class="pomodoro-dots" id="pomodoro-dots"></div>
@@ -150,9 +215,9 @@
               </div>
             </div>
 
-          </div><!-- end .timer-content -->
+          </div>
 
-          <!-- Sound toggle (bottom-right) -->
+          <!-- Sound toggle -->
           <div class="sound-toggle">
             <div class="sound-volume-row" id="sound-volume-row" style="display:none">
               <span class="vol-icon">🔈</span>
@@ -166,7 +231,7 @@
             </button>
           </div>
 
-          <!-- Music widget (bottom-left) -->
+          <!-- Music widget -->
           <div class="music-widget" id="music-widget">
             <div class="music-panel" id="music-panel" style="display:none">
               <div class="music-panel-header">
@@ -174,13 +239,13 @@
                 <button class="music-panel-close" onclick="closeMusicPanel()">✕</button>
               </div>
               <ul class="music-track-list" id="music-track-list"></ul>
-              <!-- YouTube URL 추가 -->
               <div class="add-yt-row">
-                <input type="text" id="yt-url-input" class="yt-url-input"
-                       placeholder="YouTube URL 붙여넣으면 바로 재생돼요 ▶">
-                <button class="yt-add-btn" onclick="addYouTubeTrack()">추가</button>
+                <input type="text" id="music-search-input" class="yt-url-input"
+                       placeholder="음악 분위기나 제목 검색 (예: 빗소리 카페)"
+                       onkeydown="if(event.key==='Enter'){ event.preventDefault(); searchMusicTracks(); }">
+                <button class="yt-add-btn" id="music-search-btn" onclick="searchMusicTracks()">검색</button>
               </div>
-              <!-- 파일 추가 -->
+              <div class="music-search-results" id="music-search-results"></div>
               <label class="add-file-label">
                 🗂 내 파일 추가 (MP3, WAV...)
                 <input type="file" id="music-file-input" accept="audio/*" multiple
@@ -200,9 +265,7 @@
 
             <div class="music-now-playing" id="music-now-playing" style="display:none">
               <div class="music-eq-bars">
-                <div class="music-eq-bar"></div>
-                <div class="music-eq-bar"></div>
-                <div class="music-eq-bar"></div>
+                <div class="music-eq-bar"></div><div class="music-eq-bar"></div><div class="music-eq-bar"></div>
               </div>
               <span id="music-track-name-display"></span>
             </div>
@@ -219,7 +282,7 @@
         </div>
       </section>
 
-      <!-- ===== SCHEDULE PAGE ===== -->
+      <!-- ===== SCHEDULE ===== -->
       <section id="page-schedule" class="page">
         <div class="page-header">
           <h1 class="page-title">오늘의 공부 계획</h1>
@@ -235,6 +298,14 @@
                 <input type="text" id="subject-input" class="form-input"
                        placeholder="예: 수학, 영어, 한국사..."
                        onkeypress="if(event.key==='Enter') document.getElementById('desc-input').focus()">
+              </div>
+              <div class="form-group" id="schedule-period-wrap" style="display:none">
+                <label class="form-label">시간대</label>
+                <select id="schedule-period-select" class="form-input">
+                  <option value="morning">🌅 아침</option>
+                  <option value="afternoon" selected>☀️ 오후</option>
+                  <option value="evening">🌙 저녁</option>
+                </select>
               </div>
               <div class="form-group">
                 <label class="form-label">오늘 할 내용</label>
@@ -265,9 +336,7 @@
                 <p>과목을 추가하고<br><b>「일정 완성」</b> 버튼을 누르면<br>맞춤 공부 팁과 동기부여 메시지를 드릴게요!</p>
               </div>
               <div class="ai-loading-state" id="ai-loading" style="display:none">
-                <div class="typing-dots">
-                  <span></span><span></span><span></span>
-                </div>
+                <div class="typing-dots"><span></span><span></span><span></span></div>
                 <p>일정을 분석하는 중이에요...</p>
               </div>
               <div class="ai-result-state" id="ai-result" style="display:none">
@@ -283,43 +352,8 @@
         </div>
       </section>
 
-      <!-- ===== CHECKLIST PAGE ===== -->
-      <section id="page-checklist" class="page">
-        <div class="page-header">
-          <h1 class="page-title">오늘 할 일</h1>
-          <div class="checklist-progress-wrap">
-            <div class="progress-bar-bg">
-              <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
-            </div>
-            <span class="progress-text" id="progress-text">0 / 0 완료</span>
-          </div>
-        </div>
-
-        <div class="checklist-input-row">
-          <input type="text" id="checklist-input" class="checklist-new-input"
-                 placeholder="새로운 할 일을 입력하세요..."
-                 onkeypress="if(event.key==='Enter') addChecklistItem()">
-          <button class="btn-add-check" onclick="addChecklistItem()">추가</button>
-        </div>
-
-        <div class="checklist-items" id="checklist-items">
-          <div class="empty-state-check" id="checklist-empty">
-            <span class="empty-icon">🌟</span>
-            <p>할 일을 추가하면 하나씩 완성해나갈 수 있어요!</p>
-          </div>
-        </div>
-
-        <div class="all-done-banner" id="all-done-banner" style="display:none">
-          <span>🎉</span>
-          <span>모든 할 일 완료! 오늘도 정말 대단해요!</span>
-          <span>✨</span>
-        </div>
-      </section>
-
-      <!-- ===== STUDY PAGE ===== -->
+      <!-- ===== STUDY (AI tutor) ===== -->
       <section id="page-study" class="page">
-
-        <!-- Subject list view -->
         <div id="study-list-view">
           <div class="page-header">
             <h1 class="page-title">📖 학습하기</h1>
@@ -334,7 +368,6 @@
           </div>
         </div>
 
-        <!-- Chat view -->
         <div id="study-chat-view" style="display:none">
           <div class="study-chat-header">
             <button class="study-back-btn" onclick="backToStudyList()">← 뒤로</button>
@@ -351,26 +384,189 @@
           <div class="study-chat-messages" id="study-chat-messages"></div>
 
           <div class="study-chat-input-area">
-            <textarea
-              id="study-chat-input"
-              class="study-chat-input"
+            <textarea id="study-chat-input" class="study-chat-input"
               placeholder="선생님께 질문해보세요... (Enter 전송 / Shift+Enter 줄바꿈)"
-              rows="1"
-              onkeydown="studyInputKeydown(event)"
-            ></textarea>
+              rows="1" onkeydown="studyInputKeydown(event)"></textarea>
             <button class="study-send-btn" id="study-send-btn" onclick="sendStudyMessage()">↑</button>
           </div>
         </div>
-
       </section>
 
-      <!-- ===== GAMES PAGE ===== -->
+      <!-- ===== FLASHCARDS ===== -->
+      <section id="page-cards" class="page">
+        <!-- Deck list -->
+        <div id="fc-deck-list-view">
+          <div class="page-header">
+            <h1 class="page-title">🃏 암기 카드</h1>
+            <p class="page-subtitle">외우고 싶은 것들을 카드로 만들고, 뒤집으면서 재미있게 외워요!</p>
+          </div>
+
+          <div class="fc-new-deck-row">
+            <input type="text" id="fc-new-deck-input" class="form-input"
+                   placeholder="새 카드 묶음 이름 (예: 영어 단어, 한국사 연표...)"
+                   onkeypress="if(event.key==='Enter') fcCreateDeck()">
+            <button class="btn-primary fc-new-deck-btn" onclick="fcCreateDeck()">+ 만들기</button>
+          </div>
+
+          <div class="fc-deck-grid" id="fc-deck-grid"></div>
+
+          <div class="empty-state-check" id="fc-empty" style="display:none">
+            <span class="empty-icon">🃏</span>
+            <p>아직 카드 묶음이 없어요.<br>위에서 첫 번째 묶음을 만들어보세요!</p>
+          </div>
+        </div>
+
+        <!-- Deck detail -->
+        <div id="fc-deck-view" style="display:none">
+          <div class="fc-deck-head">
+            <button class="study-back-btn" onclick="fcBackToDecks()">← 뒤로</button>
+            <h2 class="fc-deck-title" id="fc-deck-title"></h2>
+            <button class="btn-primary fc-study-btn" id="fc-study-btn" onclick="fcStartStudy()">▶ 학습 시작</button>
+          </div>
+
+          <div class="fc-tools-row">
+            <div class="card fc-add-card">
+              <h3 class="card-title">카드 직접 추가</h3>
+              <input type="text" id="fc-front-input" class="form-input" placeholder="앞면 (질문 / 단어)"
+                     onkeypress="if(event.key==='Enter') document.getElementById('fc-back-input').focus()">
+              <input type="text" id="fc-back-input" class="form-input" placeholder="뒷면 (답 / 뜻)"
+                     onkeypress="if(event.key==='Enter') fcAddCard()">
+              <button class="btn-primary" onclick="fcAddCard()">+ 카드 추가</button>
+            </div>
+            <div class="card fc-ai-card">
+              <h3 class="card-title">✨ AI로 카드 만들기</h3>
+              <p class="fc-ai-desc">주제를 적으면 AI가 암기 카드 8장을 자동으로 만들어줘요.</p>
+              <input type="text" id="fc-ai-topic" class="form-input"
+                     placeholder="예: 조선시대 왕 순서, 중1 영단어..."
+                     onkeypress="if(event.key==='Enter') fcGenerateAI()">
+              <button class="btn-action fc-ai-btn" id="fc-ai-btn" onclick="fcGenerateAI()">✨ AI 카드 생성</button>
+            </div>
+          </div>
+
+          <div class="fc-card-list" id="fc-card-list"></div>
+        </div>
+
+        <!-- Study mode -->
+        <div id="fc-study-view" style="display:none">
+          <div class="fc-study-head">
+            <button class="study-back-btn" onclick="fcExitStudy()">✕ 그만하기</button>
+            <span class="fc-study-progress" id="fc-study-progress"></span>
+          </div>
+
+          <div class="fc-flip-stage">
+            <div class="fc-flip-card" id="fc-flip-card" onclick="fcFlip()">
+              <div class="fc-flip-inner" id="fc-flip-inner">
+                <div class="fc-face fc-face-front">
+                  <span class="fc-face-label">질문</span>
+                  <div class="fc-face-text" id="fc-face-front-text"></div>
+                  <span class="fc-face-hint">카드를 눌러서 뒤집기</span>
+                </div>
+                <div class="fc-face fc-face-back">
+                  <span class="fc-face-label">답</span>
+                  <div class="fc-face-text" id="fc-face-back-text"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="fc-study-actions" id="fc-study-actions">
+            <button class="fc-btn-again" onclick="fcAnswer(false)">🔁 다시 볼래요</button>
+            <button class="fc-btn-know" onclick="fcAnswer(true)">⭕ 외웠어요!</button>
+          </div>
+
+          <div class="fc-study-done" id="fc-study-done" style="display:none">
+            <div class="fc-done-emoji">🎉</div>
+            <h3 id="fc-done-title">학습 완료!</h3>
+            <p id="fc-done-sub"></p>
+            <div class="fc-done-actions">
+              <button class="btn-primary" onclick="fcStartStudy(true)">🔁 다시 볼 카드만 복습</button>
+              <button class="modal-cancel" onclick="fcExitStudy()">목록으로</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== STATS ===== -->
+      <section id="page-stats" class="page">
+        <div class="page-header">
+          <h1 class="page-title">📊 공부 기록</h1>
+          <p class="page-subtitle">지윤이가 쌓아온 시간들이에요. 매일 조금씩, 나무가 자라고 있어요!</p>
+        </div>
+
+        <div class="stats-tiles">
+          <div class="hcard stat-tile">
+            <span class="stat-tile-icon">⏱️</span>
+            <span class="stat-tile-val" id="st-today">0분</span>
+            <span class="stat-tile-label">오늘 집중</span>
+          </div>
+          <div class="hcard stat-tile">
+            <span class="stat-tile-icon">📅</span>
+            <span class="stat-tile-val" id="st-week">0분</span>
+            <span class="stat-tile-label">이번 주</span>
+          </div>
+          <div class="hcard stat-tile">
+            <span class="stat-tile-icon">🔥</span>
+            <span class="stat-tile-val" id="st-streak">0일</span>
+            <span class="stat-tile-label">연속 공부</span>
+          </div>
+          <div class="hcard stat-tile">
+            <span class="stat-tile-icon">🏆</span>
+            <span class="stat-tile-val" id="st-total">0시간</span>
+            <span class="stat-tile-label">전체 누적</span>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="hcard stats-chart-card">
+            <h3 class="hcard-title">최근 7일 집중 시간</h3>
+            <div class="week-chart" id="stats-week-chart"></div>
+          </div>
+
+          <div class="hcard stats-level-card">
+            <h3 class="hcard-title">나의 성장 나무</h3>
+            <div class="level-tree" id="stats-tree">🌱</div>
+            <div class="level-name" id="stats-level-name">LV.1 새싹</div>
+            <div class="level-bar-bg"><div class="level-bar-fill" id="stats-level-bar" style="width:0%"></div></div>
+            <div class="level-next" id="stats-level-next"></div>
+            <p class="level-hint">집중 1분 = 1P · 할 일 1개 = 5P</p>
+          </div>
+        </div>
+
+        <div class="hcard stats-heatmap-card">
+          <h3 class="hcard-title">최근 12주 공부 잔디 🌱</h3>
+          <div class="heatmap-wrap">
+            <div class="heatmap" id="stats-heatmap"></div>
+          </div>
+          <div class="heatmap-legend">
+            <span>적음</span>
+            <span class="hm-cell hm-0"></span><span class="hm-cell hm-1"></span>
+            <span class="hm-cell hm-2"></span><span class="hm-cell hm-3"></span>
+            <span class="hm-cell hm-4"></span>
+            <span>많음</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== GAMES ===== -->
       <section id="page-games" class="page">
         <div class="page-header">
-          <h1 class="page-title">🏀 농구 슛!</h1>
-          <p class="page-subtitle">꾹 눌러서 당기면 궤도가 표시돼요 — 골대는 넣을 때마다 움직여요!</p>
+          <h1 class="page-title">🎮 미니 게임</h1>
+          <p class="page-subtitle" id="games-subtitle">꾹 눌러서 당기면 궤도가 표시돼요 — 골대는 넣을 때마다 움직여요!</p>
         </div>
-        <div class="bball-wrap">
+
+        <div class="game-tabs">
+          <button class="game-tab-btn active" id="game-tab-bball" onclick="switchGame('bball')">
+            <span class="game-tab-emoji">🏀</span><span class="game-tab-name">농구 슛</span>
+          </button>
+          <button class="game-tab-btn" id="game-tab-firefly" onclick="switchGame('firefly')">
+            <span class="game-tab-emoji">✨</span><span class="game-tab-name">반딧불이 정원</span>
+          </button>
+          <button class="game-tab-btn" id="game-tab-paper" onclick="switchGame('paper')">
+            <span class="game-tab-emoji">🛩️</span><span class="game-tab-name">종이비행기 도시비행</span>
+          </button>
+        </div>
+
+        <div class="bball-wrap" id="bball-wrap">
           <canvas id="bball-canvas"></canvas>
           <div class="game-hud">
             <div class="game-stat">
@@ -388,9 +584,47 @@
             <button class="game-reset-btn" onclick="resetBball()">↺ 리셋</button>
           </div>
         </div>
+
+        <div class="ff-wrap" id="ff-wrap" style="display:none">
+          <canvas id="ff-canvas"></canvas>
+          <div class="game-hud">
+            <div class="game-stat">
+              <span class="game-stat-label">점수</span>
+              <span class="game-stat-val" id="ff-score">0</span>
+            </div>
+            <div class="game-stat">
+              <span class="game-stat-label">반딧불이</span>
+              <span class="game-stat-val" id="ff-caught">0</span>
+            </div>
+            <div class="game-stat" id="ff-combo-stat" style="display:none">
+              <span class="game-stat-label">콤보</span>
+              <span class="game-stat-val streak-val" id="ff-combo">x1</span>
+            </div>
+            <button class="game-reset-btn" onclick="resetFirefly()">↺ 리셋</button>
+          </div>
+        </div>
+
+        <div class="pp-wrap" id="pp-wrap" style="display:none">
+          <div id="pp-canvas-container"></div>
+          <div class="game-hud">
+            <div class="game-stat">
+              <span class="game-stat-label">점수</span>
+              <span class="game-stat-val" id="pp-score">0</span>
+            </div>
+            <div class="game-stat">
+              <span class="game-stat-label">링</span>
+              <span class="game-stat-val" id="pp-rings">0</span>
+            </div>
+            <div class="game-stat">
+              <span class="game-stat-label">비행거리</span>
+              <span class="game-stat-val" id="pp-dist">0m</span>
+            </div>
+            <button class="game-reset-btn" onclick="resetPaperPlane()">↺ 리셋</button>
+          </div>
+        </div>
       </section>
 
-      <!-- ===== VIDEO SEARCH PAGE ===== -->
+      <!-- ===== VIDEO SEARCH ===== -->
       <section id="page-video" class="page">
         <div class="vs-hero">
           <div class="vs-hero-badge">🎬 강의 영상 찾기</div>
@@ -410,8 +644,7 @@
               </div>
             </div>
             <button class="vs-search-btn" id="vs-search-btn" onclick="searchLectureVideos()">
-              <span class="vs-btn-icon">🔍</span>
-              <span>강의 찾기</span>
+              <span class="vs-btn-icon">🔍</span><span>강의 찾기</span>
             </button>
           </div>
 
@@ -440,7 +673,7 @@
     </main>
   </div>
 
-  <!-- YouTube Mini Player (fixed, works on all pages) -->
+  <!-- YouTube Mini Player -->
   <div id="yt-mini-player" class="yt-mini-player" style="display:none">
     <div class="yt-mini-header">
       <span class="yt-mini-title" id="yt-mini-title">유튜브 음악</span>
@@ -450,13 +683,9 @@
       </div>
     </div>
     <div id="yt-iframe-wrap" class="yt-iframe-wrap">
-      <iframe id="yt-iframe"
-              src=""
+      <iframe id="yt-iframe" src=""
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowfullscreen
-              referrerpolicy="no-referrer-when-downgrade"
-              frameborder="0">
-      </iframe>
+              allowfullscreen referrerpolicy="no-referrer-when-downgrade" frameborder="0"></iframe>
     </div>
   </div>
 
@@ -474,6 +703,13 @@
       <div class="date-popup-add">
         <input type="text" id="date-popup-subject" class="form-input" placeholder="과목명 (예: 수학, 영어...)"
                onkeypress="if(event.key==='Enter') document.getElementById('date-popup-desc').focus()">
+        <div id="date-popup-period-wrap" style="display:none;margin-top:6px">
+          <select id="date-popup-period" class="form-input">
+            <option value="morning">🌅 아침</option>
+            <option value="afternoon" selected>☀️ 오후</option>
+            <option value="evening">🌙 저녁</option>
+          </select>
+        </div>
         <input type="text" id="date-popup-desc" class="form-input" placeholder="할 내용 (선택사항)"
                onkeypress="if(event.key==='Enter') addToDatePopup()" style="margin-top:6px">
         <button class="btn-primary" onclick="addToDatePopup()" style="margin-top:8px;width:100%">+ 일정 추가</button>
@@ -494,16 +730,13 @@
       <span class="memo-char-count" id="memo-char-count">0자</span>
       <button class="memo-panel-close" onclick="toggleMemoPanel()">✕</button>
     </div>
-    <textarea
-      id="memo-textarea"
-      class="memo-textarea"
+    <textarea id="memo-textarea" class="memo-textarea"
       placeholder="✏️ 여기에 자유롭게 적어보세요&#10;생각, 아이디어, 중요한 것들...&#10;&#10;앱을 꺼도 내용이 유지돼요 🌿"
-      oninput="saveMemo(this.value)"
-    ></textarea>
+      oninput="saveMemo(this.value)"></textarea>
     <div class="memo-panel-footer">자동 저장됨 ✓</div>
   </div>
 
-  <!-- Clover Motivation Modal -->
+  <!-- Clover Modal -->
   <div id="clover-modal" class="modal-overlay" style="display:none" onclick="cloverModalBgClick(event)">
     <div class="modal-box clover-modal-box">
       <h3 class="modal-title">🍀 나만의 동기부여</h3>
@@ -539,12 +772,11 @@
     <div class="modal-box">
       <h3 class="modal-title">⚙️ 설정</h3>
 
-      <!-- 테마 -->
       <div class="settings-section">
         <div class="settings-section-label">🎨 플랫폼 테마</div>
         <div class="theme-picker-row">
           <button class="theme-pick-btn active" id="theme-btn-default" data-theme="default" onclick="setAppTheme('default')">
-            <div class="theme-swatch" style="background:linear-gradient(135deg,#FDF6EC 50%,#C8956C 50%)"></div>
+            <div class="theme-swatch" style="background:linear-gradient(135deg,#FAF4E9 50%,#C4703F 50%)"></div>
             <span>따뜻한 베이지</span>
           </button>
           <button class="theme-pick-btn" id="theme-btn-sunset" data-theme="sunset" onclick="setAppTheme('sunset')">
@@ -560,10 +792,22 @@
 
       <div class="settings-divider"></div>
 
-      <!-- API 키 -->
+      <div class="settings-section">
+        <div class="settings-section-label">🕐 일정 시간대 구분</div>
+        <label class="settings-toggle-row">
+          <span>일정을 아침 / 오후 / 저녁으로 나눠서 관리해요</span>
+          <span class="toggle-switch">
+            <input type="checkbox" id="period-toggle-input" onchange="togglePeriodSetting(this.checked)">
+            <span class="toggle-switch-track"></span>
+          </span>
+        </label>
+      </div>
+
+      <div class="settings-divider"></div>
+
       <div class="settings-section">
         <div class="settings-section-label">🔑 OpenAI API 키</div>
-        <p class="modal-desc" style="margin-bottom:10px">AI 피드백 기능을 사용하려면 OpenAI API 키가 필요해요.<br>키는 이 브라우저에만 저장되며 외부로 전송되지 않아요.</p>
+        <p class="modal-desc" style="margin-bottom:10px">AI 선생님·피드백 기능에 사용돼요.<br>키는 이 브라우저에만 저장되며 외부로 전송되지 않아요.</p>
         <input type="password" id="api-key-input" class="form-input" placeholder="sk-proj-..." style="margin-bottom:12px">
         <div class="settings-section-label" style="margin-top:16px">🎬 YouTube API 키</div>
         <p class="modal-desc" style="margin-bottom:10px">강의 영상 찾기 기능에 사용돼요.</p>
@@ -576,7 +820,10 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <!-- Toasts -->
+  <div id="toast-root"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

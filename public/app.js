@@ -26,7 +26,8 @@ let state = {
     remainingSecs: 25 * 60,
     pomodoroPhase: 'work',
     pomodoroCount: 0,
-    soundOn: false
+    soundOn: false,
+    focusAcc: 0          // 집중 초 누적 (60초마다 1분 기록)
   },
   schedule: {
     items: [],
@@ -42,6 +43,40 @@ let timerInterval = null;
 const soundEngine = new AmbientSoundEngine();
 let particles = null;
 let currentPopupDate = null;
+let editingScheduleId = null;
+let editingPopupId = null;
+
+/* ============================================================
+   시간대 구분 (아침/오후/저녁) 설정
+   ============================================================ */
+const PERIOD_ENABLED_KEY = 'hs_period_enabled';
+const PERIOD_LABELS = { morning: '🌅 아침', afternoon: '☀️ 오후', evening: '🌙 저녁' };
+const PERIOD_ORDER = ['morning', 'afternoon', 'evening'];
+
+function isPeriodEnabled() {
+  return localStorage.getItem(PERIOD_ENABLED_KEY) === '1';
+}
+
+/* ============================================================
+   대한민국 공휴일 (2025~2027)
+   ============================================================ */
+const HOLIDAYS_KR = {
+  '2025-1-1': '신정', '2025-1-27': '임시공휴일', '2025-1-28': '설날', '2025-1-29': '설날', '2025-1-30': '설날',
+  '2025-3-1': '삼일절', '2025-3-3': '대체공휴일', '2025-5-5': '어린이날·부처님오신날', '2025-5-6': '대체공휴일',
+  '2025-6-6': '현충일', '2025-8-15': '광복절', '2025-10-3': '개천절', '2025-10-5': '추석', '2025-10-6': '추석',
+  '2025-10-7': '추석', '2025-10-8': '대체공휴일', '2025-10-9': '한글날', '2025-12-25': '성탄절',
+
+  '2026-1-1': '신정', '2026-2-16': '설날', '2026-2-17': '설날', '2026-2-18': '설날',
+  '2026-3-1': '삼일절', '2026-3-2': '대체공휴일', '2026-5-5': '어린이날', '2026-5-24': '부처님오신날',
+  '2026-5-25': '대체공휴일', '2026-6-6': '현충일', '2026-8-15': '광복절', '2026-8-17': '대체공휴일',
+  '2026-9-24': '추석', '2026-9-25': '추석', '2026-9-26': '추석', '2026-10-3': '개천절', '2026-10-5': '대체공휴일',
+  '2026-10-9': '한글날', '2026-12-25': '성탄절',
+
+  '2027-1-1': '신정', '2027-2-6': '설날', '2027-2-7': '설날', '2027-2-8': '설날', '2027-2-9': '대체공휴일',
+  '2027-3-1': '삼일절', '2027-5-5': '어린이날', '2027-5-13': '부처님오신날', '2027-6-6': '현충일',
+  '2027-8-15': '광복절', '2027-9-14': '추석', '2027-9-15': '추석', '2027-9-16': '추석',
+  '2027-10-3': '개천절', '2027-10-9': '한글날', '2027-12-25': '성탄절'
+};
 
 /* ============================================================
    INIT
@@ -55,6 +90,7 @@ const CAL_SCHEDULES_KEY   = 'hs_schedules_v2';
 
 document.addEventListener('DOMContentLoaded', () => {
   loadStorage();
+  carryOverYesterdaySchedule();
   particles = new ParticleSystem();
   setupNavigation();
   renderHome();
@@ -63,10 +99,13 @@ document.addEventListener('DOMContentLoaded', () => {
   renderScheduleItems();
   renderChecklistItems();
   updateChecklistProgress();
+  updateHomeStats();
+  updateTimerTodayHint();
+  fcInit();
 
   musicPlayer.init();
   initMemo();
-  // API key is pre-bundled — settings modal available via ⚙️ button
+  // API 키는 ⚙️ 설정 모달에서 입력 (localStorage에만 저장)
 });
 
 /* ============================================================
@@ -80,6 +119,7 @@ function setupNavigation() {
 
 function navigate(page) {
   if (state.page === 'timer' && page !== 'timer') stopTimerBg();
+  if (state.page === 'games' && page !== 'games') { ffPause(); ppPause(); }
   if (page === 'timer' && state.page !== 'timer') setTimeout(initTimerBg, 100);
   if (state.page === 'study' && page !== 'study') backToStudyList();
 
@@ -99,11 +139,18 @@ function navigate(page) {
   document.getElementById(`page-${page}`).classList.add('active');
   document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
 
-  if (page === 'home') renderHome();
+  if (page === 'home') { renderHome(); updateHomeStats(); }
   if (page === 'schedule') renderScheduleDate();
   if (page === 'study') renderStudyPage();
   if (page === 'video') renderVsChips();
-  if (page === 'games') ensureBballInit();
+  if (page === 'games') {
+    ensureBballInit();
+    if (activeGame === 'firefly') { ensureFireflyInit(); ffResume(); }
+    if (activeGame === 'paper')   { ensurePaperInit();   ppResume(); }
+  }
+  if (page === 'stats') renderStats();
+  if (page === 'cards') fcRenderDecks();
+  if (page === 'timer') updateTimerTodayHint();
 
   updateMemoStarVisibility(page);
 }
@@ -219,13 +266,24 @@ function createDayCell(year, month, day, otherMonth, allSchedules, isToday) {
   if (dow === 0) cell.classList.add('sunday');
   if (dow === 6) cell.classList.add('saturday');
 
+  const key = dateKey(year, month, day);
+  const holidayName = HOLIDAYS_KR[key];
+  if (holidayName) cell.classList.add('holiday');
+
   const numEl = document.createElement('span');
   numEl.className = 'cal-day-num';
   numEl.textContent = day;
   cell.appendChild(numEl);
 
+  if (holidayName) {
+    const hEl = document.createElement('div');
+    hEl.className = 'cal-holiday-label';
+    hEl.textContent = holidayName;
+    hEl.title = holidayName;
+    cell.appendChild(hEl);
+  }
+
   if (!otherMonth) {
-    const key = dateKey(year, month, day);
     const items = (allSchedules && allSchedules[key]) || [];
     items.slice(0, 2).forEach(item => {
       const chip = document.createElement('div');
@@ -288,6 +346,18 @@ function toggleTimer() {
 }
 
 function startTimer() {
+  // 끝난 타이머에서 다시 ▶를 누르면 처음부터 재시작
+  if (state.timer.remainingSecs <= 0) {
+    if (state.timer.mode === 'pomodoro') {
+      state.timer.remainingSecs = state.timer.pomodoroPhase === 'work' ? POMO_WORK : POMO_BREAK;
+      state.timer.totalSecs = state.timer.remainingSecs;
+    } else {
+      state.timer.remainingSecs = state.timer.customMinutes * 60;
+      state.timer.totalSecs = state.timer.remainingSecs;
+    }
+    updateTimerDisplay();
+  }
+
   state.timer.isRunning = true;
   document.getElementById('btn-start').textContent = '⏸';
   document.getElementById('btn-start').classList.add('running');
@@ -338,6 +408,19 @@ function timerTick() {
     return;
   }
   state.timer.remainingSecs--;
+
+  // 집중 시간 기록 (뽀모도로 휴식 시간은 제외)
+  const isFocus = state.timer.mode !== 'pomodoro' || state.timer.pomodoroPhase === 'work';
+  if (isFocus) {
+    state.timer.focusAcc++;
+    if (state.timer.focusAcc >= 60) {
+      state.timer.focusAcc -= 60;
+      bumpLog(FOCUS_LOG_KEY, todayStr(), 1);
+      updateTimerTodayHint();
+      updateHomeStats();
+    }
+  }
+
   updateTimerDisplay();
 }
 
@@ -370,6 +453,13 @@ function onTimerEnd() {
 
   updateTimerDisplay();
   playCompletionPing();
+
+  // 집중 세션 완료 축하
+  const wasFocus = state.timer.mode !== 'pomodoro' || state.timer.pomodoroPhase === 'break';
+  if (wasFocus) {
+    showToast(`집중 완료! 오늘 총 ${getTodayFocusMin()}분 집중했어요`, '🔥');
+    if (particles) particles.burst(window.innerWidth * 0.5, window.innerHeight * 0.4);
+  }
 }
 
 function updateTimerDisplay() {
@@ -1070,14 +1160,6 @@ const musicPlayer = {
     }
     this.renderPanel();
     this.updateUI();
-
-    // YouTube URL 붙여넣기 시 즉시 재생
-    const ytInput = document.getElementById('yt-url-input');
-    if (ytInput) {
-      ytInput.addEventListener('paste', () => {
-        setTimeout(addYouTubeTrack, 80);
-      });
-    }
   },
 
   saveMeta() {
@@ -1401,12 +1483,8 @@ const musicPlayer = {
   renderPanel() {
     const list = document.getElementById('music-track-list');
     if (!list) return;
-    if (this.tracks.filter(t => t.type === 'file').length === 0) {
-      list.innerHTML = `<li class="track-empty-hint">추가된 음악이 없어요.<br>아래 버튼으로 MP3 파일을 추가해보세요!</li>`;
-      return;
-    }
     const icons = { generated: '🎹', file: '🎵', youtube: '▶' };
-    list.innerHTML = this.tracks.map((t, i) => {
+    let html = this.tracks.map((t, i) => {
       const active = i === this.currentIndex;
       const icon = icons[t.type] || '🎵';
       const canDelete = !t.builtin;
@@ -1418,6 +1496,10 @@ const musicPlayer = {
             onclick="event.stopPropagation();musicPlayer.removeTrack('${t.id}')">✕</button>` : ''}
         </li>`;
     }).join('');
+    if (this.tracks.every(t => t.builtin)) {
+      html += `<li class="track-empty-hint">유튜브 URL이나 MP3 파일로<br>나만의 음악을 추가할 수 있어요 🎧</li>`;
+    }
+    list.innerHTML = html;
   },
 
   updateUI() {
@@ -1500,80 +1582,105 @@ async function addMusicFiles(input) {
   input.value = '';
 }
 
-async function addYouTubeTrack() {
-  const input = document.getElementById('yt-url-input');
-  const btn   = document.querySelector('.yt-add-btn');
-  const raw   = input.value.trim();
-  if (!raw) return;
+let _musicSearchResults = [];
 
-  const videoMatch    = raw.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([A-Za-z0-9_-]{11})/);
-  const playlistMatch = raw.match(/[?&]list=([A-Za-z0-9_-]+)/);
+async function searchMusicTracks() {
+  const input      = document.getElementById('music-search-input');
+  const btn        = document.getElementById('music-search-btn');
+  const resultsEl  = document.getElementById('music-search-results');
+  const query      = input.value.trim();
+  if (!query) { input.focus(); return; }
 
-  if (!videoMatch && !playlistMatch) {
-    alert('올바른 YouTube URL을 붙여넣어주세요.\n예: https://www.youtube.com/watch?v=XXXXXXXXXXX\n또는 재생목록 URL: https://www.youtube.com/playlist?list=PLxxxxxxx');
+  const apiKey = localStorage.getItem(YOUTUBE_KEY_STORAGE);
+  if (!apiKey) {
+    alert('음악 검색을 위해 YouTube API 키가 필요해요.\n사이드바 ⚙️ 버튼에서 등록해주세요.');
     return;
   }
 
-  const apiKey = localStorage.getItem(YOUTUBE_KEY_STORAGE);
+  btn.disabled = true;
+  btn.textContent = '검색 중...';
+  resultsEl.innerHTML = '<div class="music-search-hint">검색 중...</div>';
 
-  if (videoMatch) {
-    // 단일 영상 — list 파라미터는 무시하고 영상 ID만 사용
-    const ytId = videoMatch[1];
-    let name = '▶ 유튜브 음악 ' + (musicPlayer.tracks.filter(t => t.type === 'youtube').length + 1);
+  try {
+    const searchParams = new URLSearchParams({
+      part:            'snippet',
+      q:                query,
+      type:            'video',
+      videoEmbeddable: 'true',
+      videoCategoryId: '10', // Music
+      maxResults:      '10',
+      key:              apiKey
+    });
+    const searchRes  = await fetch(`https://www.googleapis.com/youtube/v3/search?${searchParams}`);
+    const searchData = await searchRes.json();
+    if (searchData.error) throw new Error(searchData.error.message);
 
-    if (btn) { btn.textContent = '검색 중...'; btn.disabled = true; }
-    if (apiKey) {
-      try {
-        const resp = await fetch(
-          `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${ytId}&key=${apiKey}`
-        );
-        const data = await resp.json();
-        if (data.items && data.items.length > 0) name = '▶ ' + data.items[0].snippet.title;
-      } catch(_) {}
-    }
-    if (btn) { btn.textContent = '추가'; btn.disabled = false; }
-
-    musicPlayer.addYouTube(ytId, name);
-
-  } else {
-    // 재생목록 URL — YouTube API로 영상 ID 조회 후 playlist 파라미터로 직접 지정
-    const listId = playlistMatch[1];
-    if (!apiKey) {
-      alert('재생목록을 불러오려면 YouTube API 키가 필요해요.');
+    const items = searchData.items || [];
+    const videoIds = items.map(i => i.id.videoId).filter(Boolean);
+    if (!videoIds.length) {
+      resultsEl.innerHTML = '<div class="music-search-hint">검색 결과가 없어요.</div>';
       return;
     }
-    if (btn) { btn.textContent = '목록 불러오는 중...'; btn.disabled = true; }
-    try {
-      const resp = await fetch(
-        `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId=${listId}&maxResults=50&key=${apiKey}`
-      );
-      const data = await resp.json();
-      const ids = (data.items || []).map(i => i.snippet.resourceId.videoId).filter(Boolean);
-      if (!ids.length) {
-        alert('재생목록에서 영상을 불러올 수 없어요.\n공개 재생목록인지 확인해주세요.');
-        if (btn) { btn.textContent = '추가'; btn.disabled = false; }
-        return;
-      }
 
-      let name = '▶ 재생목록';
-      try {
-        const pr = await fetch(
-          `https://www.googleapis.com/youtube/v3/playlists?part=snippet&id=${listId}&key=${apiKey}`
-        );
-        const pd = await pr.json();
-        if (pd.items && pd.items.length > 0) name = '▶ ' + pd.items[0].snippet.title;
-      } catch(_) {}
+    // videos 엔드포인트로 실제 임베드 가능 여부(embeddable) 재확인
+    const videosParams = new URLSearchParams({
+      part: 'status',
+      id:    videoIds.join(','),
+      key:   apiKey
+    });
+    const videosRes  = await fetch(`https://www.googleapis.com/youtube/v3/videos?${videosParams}`);
+    const videosData = await videosRes.json();
+    if (videosData.error) throw new Error(videosData.error.message);
 
-      musicPlayer.addYouTube(ids[0], name, ids.join(','));
-    } catch(e) {
-      alert('재생목록을 불러오는 중 오류가 발생했어요.\n' + e.message);
-      if (btn) { btn.textContent = '추가'; btn.disabled = false; }
+    const embeddableIds = new Set(
+      (videosData.items || []).filter(v => v.status?.embeddable).map(v => v.id)
+    );
+
+    const filtered = items
+      .filter(i => embeddableIds.has(i.id.videoId))
+      .slice(0, 5);
+
+    if (!filtered.length) {
+      resultsEl.innerHTML = '<div class="music-search-hint">임베드 가능한 영상이 없어요.\n다른 검색어로 시도해보세요.</div>';
       return;
     }
-    if (btn) { btn.textContent = '추가'; btn.disabled = false; }
+
+    _musicSearchResults = filtered.map(item => ({
+      id:    item.id.videoId,
+      title: htmlDecode(item.snippet.title)
+    }));
+
+    resultsEl.innerHTML = filtered.map((item, idx) => {
+      const title   = escHtml(htmlDecode(item.snippet.title));
+      const channel = escHtml(htmlDecode(item.snippet.channelTitle));
+      const thumb   = item.snippet.thumbnails.default?.url || item.snippet.thumbnails.medium?.url || '';
+      return `
+        <button class="music-search-item" onclick="addSearchedMusicTrack(${idx})" title="${title}">
+          <img class="music-search-thumb" src="${thumb}" alt="" loading="lazy">
+          <span class="music-search-info">
+            <span class="music-search-title">${title}</span>
+            <span class="music-search-channel">📺 ${channel}</span>
+          </span>
+        </button>`;
+    }).join('');
+
+  } catch (e) {
+    resultsEl.innerHTML = `<div class="music-search-hint">검색 중 오류가 발생했어요.\n${escHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '검색';
   }
+}
 
-  input.value = '';
+async function addSearchedMusicTrack(idx) {
+  const track = _musicSearchResults[idx];
+  if (!track) return;
+
+  musicPlayer.addYouTube(track.id, '▶ ' + track.title);
+
+  document.getElementById('music-search-input').value = '';
+  document.getElementById('music-search-results').innerHTML = '';
+  _musicSearchResults = [];
 
   // 추가 즉시 해당 트랙으로 전환하고 재생
   const newIndex = musicPlayer.tracks.length - 1;
@@ -1801,11 +1908,23 @@ function renderScheduleDate() {
   if (el) {
     el.textContent = `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일 ${DAYS_FULL[now.getDay()]}`;
   }
+  updateSchedulePeriodUI();
+}
+
+function updateSchedulePeriodUI() {
+  const wrap = document.getElementById('schedule-period-wrap');
+  if (wrap) wrap.style.display = isPeriodEnabled() ? 'block' : 'none';
+}
+
+function updatePopupPeriodUI() {
+  const wrap = document.getElementById('date-popup-period-wrap');
+  if (wrap) wrap.style.display = isPeriodEnabled() ? 'block' : 'none';
 }
 
 function addScheduleItem() {
   const subjectEl = document.getElementById('subject-input');
   const descEl = document.getElementById('desc-input');
+  const periodEl = document.getElementById('schedule-period-select');
   const subject = subjectEl.value.trim();
   const desc = descEl.value.trim();
 
@@ -1823,7 +1942,17 @@ function addScheduleItem() {
     subject,
     desc,
     color: colors[state.schedule.items.length % colors.length],
-    done: false
+    done: false,
+    period: isPeriodEnabled() ? (periodEl ? periodEl.value : 'afternoon') : undefined
+  });
+
+  // 체크리스트에도 자동 등록 (📋 일정 배지)
+  state.checklist.items.push({
+    id: genId(),
+    text: desc ? `${subject} — ${desc}` : subject,
+    done: false,
+    fromSchedule: true,
+    scheduleId
   });
 
   subjectEl.value = '';
@@ -1832,17 +1961,99 @@ function addScheduleItem() {
 
   saveStorage();
   renderScheduleItems();
+  renderChecklistItems();
+  updateChecklistProgress();
+  showToast(`「${subject}」 일정이 추가됐어요`, '🗓️');
 }
 
 function removeScheduleItem(id) {
   state.schedule.items = state.schedule.items.filter(i => i.id !== id);
   // Remove linked checklist item only if not yet done
   state.checklist.items = state.checklist.items.filter(i => !(i.scheduleId === id && !i.done));
+  if (editingScheduleId === id) editingScheduleId = null;
   saveStorage();
   renderScheduleItems();
   renderChecklistItems();
   updateChecklistProgress();
   if (state.schedule.items.length === 0) resetAIPanel();
+}
+
+function editScheduleItem(id) {
+  editingScheduleId = id;
+  renderScheduleItems();
+}
+
+function cancelEditSchedule() {
+  editingScheduleId = null;
+  renderScheduleItems();
+}
+
+function saveEditSchedule(id) {
+  const subjectEl = document.getElementById(`edit-subject-${id}`);
+  const descEl = document.getElementById(`edit-desc-${id}`);
+  const periodEl = document.getElementById(`edit-period-${id}`);
+  const subject = subjectEl.value.trim();
+  const desc = descEl.value.trim();
+
+  if (!subject) {
+    subjectEl.focus();
+    subjectEl.style.borderColor = '#D45C5C';
+    setTimeout(() => subjectEl.style.borderColor = '', 1200);
+    return;
+  }
+
+  const item = state.schedule.items.find(i => i.id === id);
+  if (item) {
+    item.subject = subject;
+    item.desc = desc;
+    if (periodEl) item.period = periodEl.value;
+
+    const linked = state.checklist.items.find(c => c.scheduleId === id);
+    if (linked) linked.text = desc ? `${subject} — ${desc}` : subject;
+  }
+
+  editingScheduleId = null;
+  saveStorage();
+  renderScheduleItems();
+  renderChecklistItems();
+  renderCalendar();
+  showToast('일정을 수정했어요', '✏️');
+}
+
+function scheduleItemCardHtml(item, opts) {
+  const editing = opts.editingId === item.id;
+  const editFnPrefix = opts.editFnPrefix;
+
+  if (editing) {
+    const periodSelectHtml = isPeriodEnabled() ? `
+        <select id="edit-period-${item.id}" class="form-input" style="margin-bottom:6px">
+          ${PERIOD_ORDER.map(p => `<option value="${p}" ${item.period === p ? 'selected' : ''}>${PERIOD_LABELS[p]}</option>`).join('')}
+        </select>` : '';
+    return `
+      <li class="schedule-item schedule-item-editing">
+        <div class="schedule-item-color" style="background:${item.color}"></div>
+        <div class="schedule-item-body">
+          <input type="text" id="edit-subject-${item.id}" class="form-input" value="${escHtml(item.subject)}" style="margin-bottom:6px">
+          ${periodSelectHtml}
+          <textarea id="edit-desc-${item.id}" class="form-textarea" rows="2" style="margin-bottom:8px">${escHtml(item.desc || '')}</textarea>
+          <div class="schedule-edit-actions">
+            <button class="btn-primary" onclick="${editFnPrefix}Save('${item.id}')">저장</button>
+            <button class="modal-cancel" onclick="${editFnPrefix}Cancel()">취소</button>
+          </div>
+        </div>
+      </li>`;
+  }
+
+  return `
+    <li class="schedule-item">
+      <div class="schedule-item-color" style="background:${item.color}"></div>
+      <div class="schedule-item-body">
+        <div class="schedule-item-subject">${escHtml(item.subject)}${item.carriedOver ? ' <span class="carried-tag">❗ 못한 일정</span>' : ''}</div>
+        ${item.desc ? `<div class="schedule-item-desc">${escHtml(item.desc)}</div>` : ''}
+      </div>
+      <button class="schedule-item-edit" onclick="${editFnPrefix}Edit('${item.id}')">✎</button>
+      <button class="schedule-item-delete" onclick="${opts.removeFn}('${item.id}')">✕</button>
+    </li>`;
 }
 
 function renderScheduleItems() {
@@ -1862,17 +2073,25 @@ function renderScheduleItems() {
   if (empty) empty.style.display = 'none';
   if (aiBtn) aiBtn.disabled = false;
 
-  list.innerHTML = state.schedule.items.map(item => `
-    <li class="schedule-item">
-      <div class="schedule-item-color" style="background:${item.color}"></div>
-      <div class="schedule-item-body">
-        <div class="schedule-item-subject">${escHtml(item.subject)}</div>
-        ${item.desc ? `<div class="schedule-item-desc">${escHtml(item.desc)}</div>` : ''}
-      </div>
-      <button class="schedule-item-delete" onclick="removeScheduleItem('${item.id}')">✕</button>
-    </li>
-  `).join('');
+  const opts = { editingId: editingScheduleId, editFnPrefix: 'schedule', removeFn: 'removeScheduleItem' };
+
+  if (isPeriodEnabled()) {
+    list.innerHTML = PERIOD_ORDER.map(period => {
+      const items = state.schedule.items.filter(i => (i.period || 'afternoon') === period);
+      if (items.length === 0) return '';
+      return `
+        <li class="schedule-period-header">${PERIOD_LABELS[period]}</li>
+        ${items.map(item => scheduleItemCardHtml(item, opts)).join('')}
+      `;
+    }).join('');
+  } else {
+    list.innerHTML = state.schedule.items.map(item => scheduleItemCardHtml(item, opts)).join('');
+  }
 }
+
+window.scheduleEdit = editScheduleItem;
+window.scheduleSave = saveEditSchedule;
+window.scheduleCancel = cancelEditSchedule;
 
 async function fetchAIFeedback() {
   if (state.schedule.items.length === 0) return;
@@ -1981,13 +2200,24 @@ function addChecklistItem() {
   const text = input.value.trim();
   if (!text) { input.focus(); return; }
 
-  state.checklist.items.push({ id: genId(), text, done: false });
+  const colors = ['#C8956C','#8B7BD4','#6BAF6B','#D45C5C','#5C8BD4','#D4A05C'];
+  const scheduleId = genId();
+  state.schedule.items.push({
+    id: scheduleId,
+    subject: text,
+    desc: '',
+    color: colors[state.schedule.items.length % colors.length],
+    done: false
+  });
+
+  state.checklist.items.push({ id: genId(), text, done: false, fromSchedule: true, scheduleId });
   input.value = '';
   input.focus();
 
   saveStorage();
   renderChecklistItems();
   updateChecklistProgress();
+  renderCalendar();
 }
 
 function toggleChecklistItem(id) {
@@ -1995,6 +2225,15 @@ function toggleChecklistItem(id) {
   if (!item) return;
 
   item.done = !item.done;
+
+  // 일정에서 온 항목이면 일정 완료 상태도 함께 동기화
+  if (item.scheduleId) {
+    const sched = state.schedule.items.find(s => s.id === item.scheduleId);
+    if (sched) sched.done = item.done;
+  }
+
+  // 공부 기록(포인트/잔디)에 반영: 할 일 1개 = 5P
+  bumpLog(TASKS_LOG_KEY, todayStr(), item.done ? 1 : -1);
 
   if (item.done) {
     const el = document.querySelector(`[data-id="${id}"]`);
@@ -2012,18 +2251,33 @@ function toggleChecklistItem(id) {
   saveStorage();
   renderChecklistItems();
   updateChecklistProgress();
+
+  // 100% 달성 시 한 번 더 축하
+  const total = state.checklist.items.length;
+  const done  = state.checklist.items.filter(i => i.done).length;
+  if (item.done && total > 0 && done === total && particles) {
+    setTimeout(() => {
+      particles.burst(window.innerWidth * 0.5, window.innerHeight * 0.35);
+      showToast('오늘 할 일 전부 완료! 정말 대단해요', '🎉');
+    }, 250);
+  }
 }
 
 function removeChecklistItem(id) {
+  const item = state.checklist.items.find(i => i.id === id);
   state.checklist.items = state.checklist.items.filter(i => i.id !== id);
+  if (item && item.scheduleId) {
+    state.schedule.items = state.schedule.items.filter(s => s.id !== item.scheduleId);
+    renderScheduleItems();
+  }
   saveStorage();
   renderChecklistItems();
   updateChecklistProgress();
+  renderCalendar();
 }
 
 function renderChecklistItems() {
   const container = document.getElementById('checklist-items');
-  const emptyEl = document.getElementById('checklist-empty');
   if (!container) return;
 
   const active = state.checklist.items.filter(i => !i.done);
@@ -2031,13 +2285,14 @@ function renderChecklistItems() {
   const ordered = [...active, ...done];
 
   if (state.checklist.items.length === 0) {
-    container.innerHTML = '';
-    if (emptyEl) container.appendChild(emptyEl);
-    if (emptyEl) emptyEl.style.display = 'block';
+    // innerHTML 덮어쓰기로 기존 empty div가 사라졌을 수 있으므로 항상 다시 생성
+    container.innerHTML = `
+      <div class="empty-state-check" id="checklist-empty">
+        <span class="empty-icon">🌟</span>
+        <p>할 일을 추가하면<br>하나씩 완성해나갈 수 있어요!</p>
+      </div>`;
     return;
   }
-
-  if (emptyEl) emptyEl.style.display = 'none';
 
   container.innerHTML = ordered.map(item => `
     <div class="checklist-item ${item.done ? 'done' : ''}" data-id="${item.id}">
@@ -2061,6 +2316,9 @@ function updateChecklistProgress() {
   if (fill) fill.style.width = total > 0 ? `${(done / total) * 100}%` : '0%';
   if (text) text.textContent = `${done} / ${total} 완료`;
   if (banner) banner.style.display = (total > 0 && done === total) ? 'flex' : 'none';
+
+  updateHomeStats();
+  if (state.page === 'stats') renderStats();
 }
 
 /* ============================================================
@@ -2080,6 +2338,7 @@ function ParticleSystem() {
   window.addEventListener('resize', resize);
 
   this.burst = (x, y) => {
+    if (PREFERS_REDUCED_MOTION) return; // 모션 최소화 설정 존중
     const colors = ['#C8956C','#E8A87C','#F4C97A','#E86B3C','#D4884A','#FFD700','#FF9F43','#EE5A24'];
     const count = 42;
     for (let i = 0; i < count; i++) {
@@ -2163,11 +2422,11 @@ function getScheduleForDate(dateStr) {
   return getAllSchedules()[dateStr] || [];
 }
 
-function addScheduleToDate(dateStr, subject, desc) {
+function addScheduleToDate(dateStr, subject, desc, period) {
   const all = getAllSchedules();
   if (!all[dateStr]) all[dateStr] = [];
   const colors = ['#C8956C','#8B7BD4','#6BAF6B','#D45C5C','#5C8BD4','#D4A05C'];
-  all[dateStr].push({ id: genId(), subject, desc, color: colors[all[dateStr].length % colors.length], done: false });
+  all[dateStr].push({ id: genId(), subject, desc, color: colors[all[dateStr].length % colors.length], done: false, period });
   saveAllSchedules(all);
 }
 
@@ -2223,6 +2482,59 @@ function todayStr() {
   return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
 }
 
+const CARRYOVER_FLAG_KEY = 'hs_carryover_flag';
+
+function carryOverYesterdaySchedule() {
+  const today = todayStr();
+  if (localStorage.getItem(CARRYOVER_FLAG_KEY) === today) return;
+  localStorage.setItem(CARRYOVER_FLAG_KEY, today);
+
+  const all = getAllSchedules();
+  const todayDate = new Date();
+  todayDate.setHours(0, 0, 0, 0);
+
+  // Pull undone items from every past date (not just yesterday), so a gap
+  // of several unopened days doesn't leave older missed items stranded.
+  const undone = [];
+  Object.keys(all).forEach(dateStr => {
+    if (dateStr === today) return;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dObj = new Date(y, m - 1, d);
+    if (dObj >= todayDate) return;
+    const remaining = [];
+    (all[dateStr] || []).forEach(item => {
+      if (!item.done) undone.push(item);
+      else remaining.push(item);
+    });
+    all[dateStr] = remaining;
+  });
+  if (undone.length === 0) return;
+  saveAllSchedules(all);
+
+  undone.forEach(orig => {
+    const scheduleId = genId();
+    state.schedule.items.push({
+      id: scheduleId,
+      subject: orig.subject,
+      desc: orig.desc,
+      color: orig.color,
+      done: false,
+      period: orig.period,
+      carriedOver: true
+    });
+    state.checklist.items.push({
+      id: genId(),
+      text: orig.desc ? `${orig.subject} — ${orig.desc}` : orig.subject,
+      done: false,
+      fromSchedule: true,
+      scheduleId
+    });
+  });
+
+  saveStorage();
+  showToast(`전에 못한 일정 ${undone.length}개를 오늘로 가져왔어요`, '❗');
+}
+
 /* ============================================================
    UTILS
    ============================================================ */
@@ -2244,11 +2556,15 @@ function escHtml(str) {
    ============================================================ */
 function openDatePopup(year, month, day, key) {
   currentPopupDate = key;
+  editingPopupId = null;
   const dayLabels = ['일', '월', '화', '수', '목', '금', '토'];
   const dow = new Date(year, month, day).getDay();
-  document.getElementById('date-popup-title').textContent = `📅 ${month + 1}월 ${day}일 (${dayLabels[dow]})`;
+  const holidayName = HOLIDAYS_KR[key];
+  document.getElementById('date-popup-title').textContent =
+    `📅 ${month + 1}월 ${day}일 (${dayLabels[dow]})` + (holidayName ? ` · 🎌 ${holidayName}` : '');
   document.getElementById('date-popup-subject').value = '';
   document.getElementById('date-popup-desc').value = '';
+  updatePopupPeriodUI();
 
   renderDatePopupItems();
   document.getElementById('date-popup-overlay').style.display = 'flex';
@@ -2259,7 +2575,65 @@ function closeDatePopup(e) {
   if (e && e.target.id !== 'date-popup-overlay') return;
   document.getElementById('date-popup-overlay').style.display = 'none';
   currentPopupDate = null;
+  editingPopupId = null;
 }
+
+function editDatePopupItem(id) {
+  editingPopupId = id;
+  renderDatePopupItems();
+}
+
+function cancelEditDatePopup() {
+  editingPopupId = null;
+  renderDatePopupItems();
+}
+
+function saveEditDatePopup(id) {
+  const subjectEl = document.getElementById(`popup-edit-subject-${id}`);
+  const descEl = document.getElementById(`popup-edit-desc-${id}`);
+  const periodEl = document.getElementById(`popup-edit-period-${id}`);
+  const subject = subjectEl.value.trim();
+  const desc = descEl.value.trim();
+
+  if (!subject) {
+    subjectEl.focus();
+    subjectEl.style.borderColor = '#D45C5C';
+    setTimeout(() => subjectEl.style.borderColor = '', 1200);
+    return;
+  }
+
+  const isToday = currentPopupDate === todayStr();
+  if (isToday) {
+    const item = state.schedule.items.find(i => i.id === id);
+    if (item) {
+      item.subject = subject;
+      item.desc = desc;
+      if (periodEl) item.period = periodEl.value;
+      const linked = state.checklist.items.find(c => c.scheduleId === id);
+      if (linked) linked.text = desc ? `${subject} — ${desc}` : subject;
+    }
+    saveStorage();
+    renderChecklistItems();
+  } else {
+    const all = getAllSchedules();
+    const item = (all[currentPopupDate] || []).find(i => i.id === id);
+    if (item) {
+      item.subject = subject;
+      item.desc = desc;
+      if (periodEl) item.period = periodEl.value;
+      saveAllSchedules(all);
+    }
+  }
+
+  editingPopupId = null;
+  renderDatePopupItems();
+  renderCalendar();
+  showToast('일정을 수정했어요', '✏️');
+}
+
+window.popupEdit = editDatePopupItem;
+window.popupSave = saveEditDatePopup;
+window.popupCancel = cancelEditDatePopup;
 
 function renderDatePopupItems() {
   if (!currentPopupDate) return;
@@ -2275,18 +2649,47 @@ function renderDatePopupItems() {
     body.innerHTML = '<p class="popup-empty">아직 일정이 없어요<br>아래에서 추가해보세요 ✏️</p>';
     return;
   }
-  body.innerHTML = items.map(item => `
+
+  const renderItem = (item) => {
+    if (editingPopupId === item.id) {
+      const periodSelectHtml = isPeriodEnabled() ? `
+        <select id="popup-edit-period-${item.id}" class="form-input" style="margin-bottom:6px">
+          ${PERIOD_ORDER.map(p => `<option value="${p}" ${item.period === p ? 'selected' : ''}>${PERIOD_LABELS[p]}</option>`).join('')}
+        </select>` : '';
+      return `
+        <div class="popup-item popup-sched-item-editing">
+          <input type="text" id="popup-edit-subject-${item.id}" class="form-input" value="${escHtml(item.subject)}" style="margin-bottom:6px">
+          ${periodSelectHtml}
+          <input type="text" id="popup-edit-desc-${item.id}" class="form-input" value="${escHtml(item.desc || '')}" style="margin-bottom:8px">
+          <div class="schedule-edit-actions">
+            <button class="btn-primary" onclick="popupSave('${item.id}')">저장</button>
+            <button class="modal-cancel" onclick="popupCancel()">취소</button>
+          </div>
+        </div>`;
+    }
+    return `
     <div class="popup-item popup-sched-item ${item.done ? 'sched-done' : ''}" onclick="toggleScheduleItemDone(event,'${item.id}')">
       <div class="popup-sched-check ${item.done ? 'checked' : ''}" style="border-color:${item.color}">
         ${item.done ? `<span style="color:${item.color}">✓</span>` : ''}
       </div>
       <div class="popup-sched-text">
-        <div class="popup-sched-subject">${escHtml(item.subject)}</div>
+        <div class="popup-sched-subject">${escHtml(item.subject)}${item.carriedOver ? ' <span class="carried-tag">❗ 못한 일정</span>' : ''}</div>
         ${item.desc ? `<div class="popup-sched-desc">${escHtml(item.desc)}</div>` : ''}
       </div>
+      <button class="popup-item-edit" onclick="event.stopPropagation();popupEdit('${item.id}')">✎</button>
       <button class="popup-item-del" onclick="event.stopPropagation();deleteFromDatePopup('${item.id}')">✕</button>
-    </div>
-  `).join('');
+    </div>`;
+  };
+
+  if (isPeriodEnabled()) {
+    body.innerHTML = PERIOD_ORDER.map(period => {
+      const pItems = items.filter(i => (i.period || 'afternoon') === period);
+      if (pItems.length === 0) return '';
+      return `<div class="schedule-period-header popup-period-header">${PERIOD_LABELS[period]}</div>${pItems.map(renderItem).join('')}`;
+    }).join('');
+  } else {
+    body.innerHTML = items.map(renderItem).join('');
+  }
 }
 
 function toggleScheduleItemDone(e, id) {
@@ -2296,7 +2699,19 @@ function toggleScheduleItemDone(e, id) {
   let willBeDone = false;
   if (isToday) {
     const item = state.schedule.items.find(i => i.id === id);
-    if (item) { item.done = !item.done; willBeDone = item.done; saveStorage(); }
+    if (item) {
+      item.done = !item.done;
+      willBeDone = item.done;
+      // 연결된 체크리스트 항목도 함께 동기화
+      const linked = state.checklist.items.find(c => c.scheduleId === id);
+      if (linked && linked.done !== item.done) {
+        linked.done = item.done;
+        bumpLog(TASKS_LOG_KEY, todayStr(), item.done ? 1 : -1);
+        renderChecklistItems();
+        updateChecklistProgress();
+      }
+      saveStorage();
+    }
   } else {
     const all = getAllSchedules();
     const item = (all[currentPopupDate] || []).find(i => i.id === id);
@@ -2315,6 +2730,8 @@ function toggleScheduleItemDone(e, id) {
 function addToDatePopup() {
   const subject = document.getElementById('date-popup-subject').value.trim();
   const desc    = document.getElementById('date-popup-desc').value.trim();
+  const periodEl = document.getElementById('date-popup-period');
+  const period = isPeriodEnabled() ? (periodEl ? periodEl.value : 'afternoon') : undefined;
   if (!subject || !currentPopupDate) {
     const el = document.getElementById('date-popup-subject');
     if (el) { el.focus(); el.style.borderColor = '#D45C5C'; setTimeout(() => el.style.borderColor = '', 1200); }
@@ -2325,11 +2742,20 @@ function addToDatePopup() {
   if (isToday) {
     const colors = ['#C8956C','#8B7BD4','#6BAF6B','#D45C5C','#5C8BD4','#D4A05C'];
     const scheduleId = genId();
-    state.schedule.items.push({ id: scheduleId, subject, desc, color: colors[state.schedule.items.length % colors.length], done: false });
+    state.schedule.items.push({ id: scheduleId, subject, desc, color: colors[state.schedule.items.length % colors.length], done: false, period });
+    state.checklist.items.push({
+      id: genId(),
+      text: desc ? `${subject} — ${desc}` : subject,
+      done: false,
+      fromSchedule: true,
+      scheduleId
+    });
     saveStorage();
     renderScheduleItems();
+    renderChecklistItems();
+    updateChecklistProgress();
   } else {
-    addScheduleToDate(currentPopupDate, subject, desc);
+    addScheduleToDate(currentPopupDate, subject, desc, period);
   }
 
   document.getElementById('date-popup-subject').value = '';
@@ -2340,6 +2766,7 @@ function addToDatePopup() {
 }
 
 function deleteFromDatePopup(id) {
+  if (editingPopupId === id) editingPopupId = null;
   const isToday = currentPopupDate === todayStr();
   if (isToday) {
     removeScheduleItem(id);
@@ -2363,8 +2790,19 @@ function showSettingsModal() {
   document.querySelectorAll('.theme-pick-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.theme === cur);
   });
+  // 시간대 구분 토글 반영
+  const periodToggle = document.getElementById('period-toggle-input');
+  if (periodToggle) periodToggle.checked = isPeriodEnabled();
   modal.style.display = 'flex';
   setTimeout(() => input.focus(), 100);
+}
+
+function togglePeriodSetting(checked) {
+  localStorage.setItem(PERIOD_ENABLED_KEY, checked ? '1' : '0');
+  updateSchedulePeriodUI();
+  updatePopupPeriodUI();
+  renderScheduleItems();
+  if (currentPopupDate) renderDatePopupItems();
 }
 
 function closeSettingsModal() {
@@ -2377,6 +2815,7 @@ function saveAPIKey() {
   const ytKey = document.getElementById('yt-api-key-input').value.trim();
   if (ytKey) localStorage.setItem(YOUTUBE_KEY_STORAGE, ytKey);
   closeSettingsModal();
+  if (key || ytKey) showToast('설정을 저장했어요', '✅');
 }
 
 // Close modal on overlay click
@@ -2888,8 +3327,8 @@ async function searchLectureVideos() {
 
     document.getElementById('vs-results-grid').innerHTML = items.map(item => {
       const vid     = item.id.videoId;
-      const title   = item.snippet.title;
-      const channel = item.snippet.channelTitle;
+      const title   = escHtml(htmlDecode(item.snippet.title));
+      const channel = escHtml(htmlDecode(item.snippet.channelTitle));
       const thumb   = item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url || '';
       const url     = `https://www.youtube.com/watch?v=${vid}`;
       return `
@@ -3072,17 +3511,18 @@ function getSubjectRole(subject) {
 
 function renderStudyPage() {
   const container = document.getElementById('study-subject-list');
-  const emptyEl   = document.getElementById('study-empty');
   if (!container) return;
 
   if (state.schedule.items.length === 0) {
-    container.innerHTML = '';
-    container.appendChild(emptyEl);
-    emptyEl.style.display = 'block';
+    // empty div가 innerHTML 덮어쓰기로 사라졌을 수 있으므로 항상 다시 생성
+    container.innerHTML = `
+      <div class="empty-state-check" id="study-empty">
+        <span class="empty-icon">📚</span>
+        <p>먼저 「오늘 일정」에서 과목을 추가해주세요!<br>과목마다 전담 AI 선생님이 기다리고 있어요.</p>
+        <button class="study-goto-schedule-btn" onclick="navigate('schedule')">일정 추가하러 가기 →</button>
+      </div>`;
     return;
   }
-
-  emptyEl.style.display = 'none';
 
   container.innerHTML = `
     <div class="study-subject-grid">
@@ -3955,6 +4395,682 @@ function _bbUpdateStreak() {
   }
 }
 
+/* ============================================================
+   GAMES PAGE — TAB SWITCHER (농구 슛 ↔ 반딧불이 정원 ↔ 종이비행기)
+   ============================================================ */
+let activeGame = 'bball';
+
+const GAME_TABS = {
+  bball:   { tab: 'game-tab-bball',   wrap: 'bball-wrap', sub: '꾹 눌러서 당기면 궤도가 표시돼요 — 골대는 넣을 때마다 움직여요!' },
+  firefly: { tab: 'game-tab-firefly', wrap: 'ff-wrap',    sub: '랜턴을 움직여 반딧불이 곁에서 클릭 — 빛의 파동으로 살포시 모아보세요!' },
+  paper:   { tab: 'game-tab-paper',   wrap: 'pp-wrap',    sub: '마우스를 움직여 종이비행기를 조종해요 — 노을 도시의 금빛 링을 통과해 보세요! (꾹 누르면 부스트)' }
+};
+
+function switchGame(name) {
+  if (name === activeGame || !GAME_TABS[name]) return;
+  activeGame = name;
+
+  Object.keys(GAME_TABS).forEach(k => {
+    const tab  = document.getElementById(GAME_TABS[k].tab);
+    const wrap = document.getElementById(GAME_TABS[k].wrap);
+    if (tab)  tab.classList.toggle('active', k === name);
+    if (wrap) wrap.style.display = k === name ? '' : 'none';
+  });
+
+  const sub = document.getElementById('games-subtitle');
+  if (sub) sub.textContent = GAME_TABS[name].sub;
+
+  // 보이는 탭의 루프만 돌아가도록 (상호 배타)
+  if (name === 'firefly') { ensureFireflyInit(); ffResume(); }
+  else ffPause();
+  if (name === 'paper') { ensurePaperInit(); ppResume(); }
+  else ppPause();
+}
+
+/* ============================================================
+   FIREFLY GARDEN GAME (반딧불이 정원)
+   랜턴(마우스)을 옮기고 클릭하면 빛의 파동이 퍼지며
+   근처의 반딧불이들이 랜턴 속으로 모여든다.
+   ============================================================ */
+const FF_PULSE_R  = 125;   // 파동 포획 반경 (px)
+const FF_PULSE_CD = 700;   // 파동 쿨다운 (ms)
+const FF_COMBO_MS = 2600;  // 콤보 유지 시간 (ms)
+const FF_FLY_MAX  = 13;    // 화면 위 반딧불이 수
+
+const FF = {
+  initialized: false, canvas: null, ctx: null, rafId: null,
+  W: 0, H: 0, dpr: 1, t: 0,
+  lantern: { x: 0, y: 0, tx: 0, ty: 0 },
+  flies: [], jar: [], pulses: [], sparks: [], popups: [],
+  stars: [], hillsFar: [], hillsNear: [], pines: [], grassBack: [], grassFront: [],
+  respawns: [], nextGoldenAt: 320, shootStar: null,
+  score: 0, caught: 0, combo: 0,
+  lastCatchAt: 0, lastPulseAt: -99999
+};
+
+function ensureFireflyInit() {
+  if (FF.initialized) return;
+  const c = document.getElementById('ff-canvas');
+  if (!c) return;
+  FF.initialized = true;
+  FF.canvas = c;
+  FF.ctx = c.getContext('2d');
+  _ffResize();
+  window.addEventListener('resize', _ffResize);
+
+  FF.lantern.x = FF.lantern.tx = FF.W * 0.5;
+  FF.lantern.y = FF.lantern.ty = FF.H * 0.55;
+  for (let i = 0; i < FF_FLY_MAX; i++) FF.flies.push(_ffSpawnFly());
+
+  c.addEventListener('mousemove', e => { const p = _ffPos(e); FF.lantern.tx = p.x; FF.lantern.ty = p.y; });
+  c.addEventListener('mousedown', e => { e.preventDefault(); const p = _ffPos(e); FF.lantern.tx = p.x; FF.lantern.ty = p.y; ffPulse(); });
+  c.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const p = _ffPos(e.touches[0]);
+    // 터치는 랜턴을 즉시 옮긴 뒤 파동 (마우스와 달리 따라올 시간이 없으므로)
+    FF.lantern.x = FF.lantern.tx = p.x;
+    FF.lantern.y = FF.lantern.ty = p.y;
+    ffPulse();
+  }, { passive: false });
+  c.addEventListener('touchmove',  e => { e.preventDefault(); const p = _ffPos(e.touches[0]); FF.lantern.tx = p.x; FF.lantern.ty = p.y; }, { passive: false });
+  // 루프는 ffResume()에서 시작 (탭/페이지가 보일 때만 돈다)
+}
+
+function ffResume() {
+  if (!FF.initialized || FF.rafId) return;
+  if (FF.canvas && FF.canvas.offsetWidth && FF.canvas.offsetWidth !== FF.W) _ffResize();
+  FF.rafId = requestAnimationFrame(ffTick);
+}
+
+function ffPause() {
+  if (FF.rafId) { cancelAnimationFrame(FF.rafId); FF.rafId = null; }
+}
+
+function resetFirefly() {
+  FF.score = 0; FF.caught = 0; FF.combo = 0;
+  FF.lastCatchAt = 0; FF.lastPulseAt = -99999;
+  FF.jar = []; FF.pulses = []; FF.sparks = []; FF.popups = []; FF.respawns = [];
+  FF.flies = [];
+  for (let i = 0; i < FF_FLY_MAX; i++) FF.flies.push(_ffSpawnFly());
+  FF.nextGoldenAt = FF.t + 320;
+  _ffUpdateHUD();
+}
+
+function _ffResize() {
+  const c = FF.canvas;
+  if (!c) return;
+  const w = c.offsetWidth, h = c.offsetHeight;
+  if (!w || !h) return;                    // 탭이 숨겨진 상태면 건너뜀 (ffResume에서 재시도)
+  FF.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  FF.W = w; FF.H = h;
+  c.width  = Math.round(w * FF.dpr);
+  c.height = Math.round(h * FF.dpr);
+  FF.ctx.setTransform(FF.dpr, 0, 0, FF.dpr, 0, 0);
+  _ffGenScene();
+}
+
+function _ffGenScene() {
+  const W = FF.W, H = FF.H;
+
+  // 별
+  FF.stars = [];
+  for (let i = 0; i < 90; i++) {
+    FF.stars.push({
+      x: Math.random() * W, y: Math.random() * H * 0.55,
+      r: 0.4 + Math.random() * 1.1,
+      tw: 0.01 + Math.random() * 0.04,
+      ph: Math.random() * Math.PI * 2
+    });
+  }
+
+  // 언덕 능선 (파랄랙스용으로 좌우 여유폭 포함)
+  const ridge = (baseY, amp, seed) => {
+    const pts = [];
+    for (let x = -240; x <= W + 240; x += 14) {
+      pts.push([x, baseY
+        + Math.sin(x * 0.0058 + seed) * amp
+        + Math.sin(x * 0.0161 + seed * 2.7) * amp * 0.38]);
+    }
+    return pts;
+  };
+  FF.hillsFar  = ridge(H * 0.60, H * 0.055, 1.7);
+  FF.hillsNear = ridge(H * 0.72, H * 0.045, 4.2);
+
+  // 가까운 능선 위 소나무 실루엣
+  FF.pines = [];
+  for (let x = -180; x <= W + 180; x += 46 + Math.random() * 60) {
+    const idx = Math.max(0, Math.min(FF.hillsNear.length - 1, Math.round((x + 240) / 14)));
+    FF.pines.push({ x, y: FF.hillsNear[idx][1] + 3, h: 16 + Math.random() * 22 });
+  }
+
+  // 풀잎 (뒷줄 / 앞줄)
+  const blades = (step, hMin, hMax) => {
+    const arr = [];
+    for (let x = -6; x <= W + 6; x += step) {
+      arr.push({
+        x: x + Math.random() * step * 0.7,
+        h: hMin + Math.random() * (hMax - hMin),
+        lean: (Math.random() - 0.5) * 10,
+        ph: Math.random() * Math.PI * 2,
+        sp: 0.02 + Math.random() * 0.02
+      });
+    }
+    return arr;
+  };
+  FF.grassBack  = blades(8, 22, 40);
+  FF.grassFront = blades(5, 32, 60);
+}
+
+function _ffPos(e) {
+  const r = FF.canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+function _ffSpawnFly(golden = false, fromEdge = false) {
+  const W = FF.W || 640, H = FF.H || 420;
+  return {
+    x: fromEdge ? (Math.random() < 0.5 ? -18 : W + 18) : Math.random() * W,
+    y: H * 0.16 + Math.random() * H * 0.62,
+    a: Math.random() * Math.PI * 2,
+    spd: golden ? 1.45 : 0.5 + Math.random() * 0.5,
+    ph: Math.random() * Math.PI * 2,
+    pl: 0.008 + Math.random() * 0.012,     // 발광 맥동 속도 (숨쉬듯 천천히)
+    r: golden ? 4.2 : 2.2 + Math.random() * 1.3,
+    golden,
+    life: golden ? 620 : Infinity,
+    state: 'free', ct: 0, cx: 0, cy: 0
+  };
+}
+
+/* ── 빛의 파동 (클릭) ── */
+function ffPulse() {
+  const now = performance.now();
+  if (now - FF.lastPulseAt < FF_PULSE_CD) return;
+  FF.lastPulseAt = now;
+  const lx = FF.lantern.x, ly = FF.lantern.y;
+  FF.pulses.push({ x: lx, y: ly, r: 16, max: FF_PULSE_R, life: 1 });
+
+  const hit = FF.flies.filter(f =>
+    f.state === 'free' && Math.hypot(f.x - lx, f.y - ly) < FF_PULSE_R);
+  if (!hit.length) return;
+
+  // 콤보: 직전 포획에서 2.6초 안에 이어가면 배수 상승
+  FF.combo = (now - FF.lastCatchAt < FF_COMBO_MS) ? FF.combo + 1 : 1;
+  FF.lastCatchAt = now;
+  const mult = Math.min(FF.combo, 5);
+
+  let base = 0, goldenN = 0;
+  hit.forEach(f => {
+    f.state = 'caught'; f.ct = 0; f.cx = f.x; f.cy = f.y;
+    base += f.golden ? 50 : 10;
+    if (f.golden) goldenN++;
+  });
+  const gained = base * mult;
+  const prevCaught = FF.caught;
+  FF.score += gained;
+  FF.caught += hit.length;
+
+  _ffAddPopup(`+${gained}`, lx, ly - 48, mult >= 3 ? '#FFD700' : '#B9FF6E', 24);
+  if (mult >= 2) _ffAddPopup(`콤보 x${mult}!`, lx, ly - 76, '#FFC94A', 15);
+
+  const rect = FF.canvas.getBoundingClientRect();
+  const burstAt = (x, y) => { if (particles) particles.burst(rect.left + x, rect.top + y); };
+
+  if (goldenN > 0) {
+    _ffAddPopup('황금 반딧불이! ✨', lx, ly - 100, '#FFE24A', 18);
+    burstAt(lx, ly);
+  }
+  if (hit.length >= 3) {
+    _ffAddPopup(`한 번에 ${hit.length}마리! 🌟`, lx, ly - 100 - (goldenN ? 26 : 0), '#8EE8FF', 16);
+    burstAt(lx, ly - 30);
+  }
+  // 15마리 단위 축하
+  if (Math.floor(FF.caught / 15) > Math.floor(prevCaught / 15)) {
+    burstAt(FF.W / 2, FF.H * 0.4);
+    showToast(`반딧불이 ${Math.floor(FF.caught / 15) * 15}마리를 모았어요! 정원이 반짝여요`, '✨');
+  }
+  _ffUpdateHUD();
+}
+
+function _ffAddPopup(text, x, y, color, size) {
+  FF.popups.push({ text, x, y, color, size, life: 80, maxLife: 80 });
+}
+
+function _ffUpdateHUD() {
+  const s = document.getElementById('ff-score');
+  const c = document.getElementById('ff-caught');
+  if (s) s.textContent = FF.score;
+  if (c) c.textContent = FF.caught;
+  const stat = document.getElementById('ff-combo-stat');
+  const val  = document.getElementById('ff-combo');
+  if (!stat || !val) return;
+  if (FF.combo >= 2) {
+    stat.style.display = 'flex';
+    val.textContent = `x${Math.min(FF.combo, 5)}🔥`;
+  } else {
+    stat.style.display = 'none';
+  }
+}
+
+/* ── 메인 루프 ── */
+function ffTick() {
+  FF.rafId = requestAnimationFrame(ffTick);
+  if (!FF.ctx || !FF.W) return;
+  FF.t++;
+  _ffUpdate();
+  _ffDraw();
+}
+
+function _ffUpdate() {
+  const W = FF.W, H = FF.H, L = FF.lantern;
+  const now = performance.now();
+
+  // 랜턴: 마우스를 부드럽게 따라감 (easing)
+  L.tx = Math.max(18, Math.min(W - 18, L.tx));
+  L.ty = Math.max(30, Math.min(H - 26, L.ty));
+  L.x += (L.tx - L.x) * 0.14;
+  L.y += (L.ty - L.y) * 0.14;
+
+  // 콤보 시간 만료
+  if (FF.combo > 0 && now - FF.lastCatchAt > FF_COMBO_MS) {
+    FF.combo = 0;
+    _ffUpdateHUD();
+  }
+
+  // 반딧불이
+  const angDiff = (a, b) => ((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  const alive = [];
+  FF.flies.forEach(f => {
+    if (f.state === 'free') {
+      f.a += (Math.random() - 0.5) * 0.16;
+      // 화면 밖으로 나가려 하면 중앙 쪽으로 선회
+      if (f.x < 24 || f.x > W - 24 || f.y < H * 0.1 || f.y > H * 0.9) {
+        const toC = Math.atan2(H * 0.5 - f.y, W * 0.5 - f.x);
+        f.a += angDiff(toC, f.a) * 0.1;
+      }
+      // 랜턴 불빛은 살짝 피해 다닌다 → 파동 타이밍이 실력
+      const dl = Math.hypot(f.x - L.x, f.y - L.y);
+      if (dl < 90) {
+        const away = Math.atan2(f.y - L.y, f.x - L.x);
+        f.a += angDiff(away, f.a) * 0.13;
+      }
+      f.x += Math.cos(f.a) * f.spd;
+      f.y += Math.sin(f.a) * f.spd + Math.sin(FF.t * 0.02 + f.ph) * 0.22;
+
+      if (f.golden) {
+        f.life--;
+        if (f.life <= 0) {           // 황금 반딧불이가 떠남
+          FF.nextGoldenAt = FF.t + 520 + Math.random() * 420;
+          return;
+        }
+      }
+      alive.push(f);
+    } else {
+      // 포획됨 → 나선을 그리며 랜턴 속으로 (가속 easing)
+      f.ct = Math.min(1, f.ct + 0.028 + f.ct * 0.055);
+      const e = f.ct * f.ct * (3 - 2 * f.ct);   // smoothstep
+      const spiralR = (1 - f.ct) * 26;
+      const spiralA = f.ct * 9 + f.ph;
+      f.x = f.cx + (L.x - f.cx) * e + Math.cos(spiralA) * spiralR;
+      f.y = f.cy + (L.y - f.cy) * e + Math.sin(spiralA) * spiralR;
+      if (f.ct >= 1) {
+        // 도착: 반짝 스파크 + 랜턴 속 불빛 추가
+        for (let i = 0; i < 8; i++) {
+          const a = Math.random() * Math.PI * 2, sp = 0.6 + Math.random() * 1.6;
+          FF.sparks.push({ x: L.x, y: L.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 0.4,
+            life: 1, golden: f.golden });
+        }
+        if (FF.jar.length < 10) {
+          FF.jar.push({ ang: Math.random() * Math.PI * 2,
+            spd: 0.03 + Math.random() * 0.03, rr: 4 + Math.random() * 6, golden: f.golden });
+        }
+        if (f.golden) FF.nextGoldenAt = FF.t + 520 + Math.random() * 420;
+        else FF.respawns.push(FF.t + 130 + Math.random() * 170);
+        return;   // 이 개체는 제거
+      }
+      alive.push(f);
+    }
+  });
+  FF.flies = alive;
+
+  // 일반 반딧불이 재등장
+  FF.respawns = FF.respawns.filter(due => {
+    if (FF.t >= due) { FF.flies.push(_ffSpawnFly(false, true)); return false; }
+    return true;
+  });
+
+  // 황금 반딧불이 등장 스케줄
+  if (FF.t >= FF.nextGoldenAt && !FF.flies.some(f => f.golden)) {
+    FF.flies.push(_ffSpawnFly(true, true));
+    FF.nextGoldenAt = Infinity;
+  }
+
+  // 파동 링
+  FF.pulses.forEach(p => { p.r += (p.max - p.r) * 0.13 + 1.4; p.life -= 0.032; });
+  FF.pulses = FF.pulses.filter(p => p.life > 0);
+
+  // 스파크
+  FF.sparks.forEach(s => { s.x += s.vx; s.y += s.vy; s.vy -= 0.015; s.vx *= 0.96; s.life -= 0.028; });
+  FF.sparks = FF.sparks.filter(s => s.life > 0);
+
+  // 팝업
+  FF.popups.forEach(p => p.life--);
+  FF.popups = FF.popups.filter(p => p.life > 0);
+
+  // 별똥별
+  if (!FF.shootStar && Math.random() < 0.0018) {
+    FF.shootStar = { x: Math.random() * W * 0.6 + W * 0.1, y: Math.random() * H * 0.2 + 10,
+      vx: 4.5 + Math.random() * 3, vy: 1.6 + Math.random(), life: 1 };
+  }
+  if (FF.shootStar) {
+    const ss = FF.shootStar;
+    ss.x += ss.vx; ss.y += ss.vy; ss.life -= 0.03;
+    if (ss.life <= 0) FF.shootStar = null;
+  }
+}
+
+/* ── 렌더링 ── */
+function _ffDraw() {
+  const ctx = FF.ctx, W = FF.W, H = FF.H, L = FF.lantern, t = FF.t;
+  const gust = Math.sin(t * 0.008) * 0.6 + Math.sin(t * 0.023) * 0.4;
+
+  // ── 밤하늘 ──
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0,    '#050915');
+  sky.addColorStop(0.45, '#0c1730');
+  sky.addColorStop(0.72, '#17284d');
+  sky.addColorStop(1,    '#0a1526');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, H);
+
+  // 별 (반짝임)
+  FF.stars.forEach(s => {
+    const a = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(t * s.tw + s.ph));
+    ctx.fillStyle = `rgba(215,228,255,${a})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2); ctx.fill();
+  });
+
+  // 별똥별
+  if (FF.shootStar) {
+    const ss = FF.shootStar;
+    const grad = ctx.createLinearGradient(ss.x, ss.y, ss.x - ss.vx * 9, ss.y - ss.vy * 9);
+    grad.addColorStop(0, `rgba(255,255,255,${ss.life * 0.9})`);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.strokeStyle = grad; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(ss.x, ss.y);
+    ctx.lineTo(ss.x - ss.vx * 9, ss.y - ss.vy * 9); ctx.stroke();
+  }
+
+  // 달 + 달무리
+  const mx = W * 0.82, my = H * 0.16, mr = 26;
+  const halo = ctx.createRadialGradient(mx, my, mr * 0.5, mx, my, mr * 5);
+  halo.addColorStop(0, 'rgba(214,226,255,0.22)');
+  halo.addColorStop(1, 'rgba(214,226,255,0)');
+  ctx.fillStyle = halo;
+  ctx.beginPath(); ctx.arc(mx, my, mr * 5, 0, Math.PI * 2); ctx.fill();
+  const moon = ctx.createRadialGradient(mx - 7, my - 7, 2, mx, my, mr);
+  moon.addColorStop(0, '#FFFDF2'); moon.addColorStop(1, '#D9DEC8');
+  ctx.fillStyle = moon;
+  ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(120,130,110,0.14)';
+  ctx.beginPath(); ctx.arc(mx + 8, my + 4, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(mx - 6, my + 9, 3.4, 0, Math.PI * 2); ctx.fill();
+
+  // ── 언덕 실루엣 (랜턴 위치에 따른 파랄랙스) ──
+  const paraFar  = (W / 2 - L.x) * 0.015;
+  const paraNear = (W / 2 - L.x) * 0.035;
+  const drawRidge = (pts, off, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0] + off, pts[0][1]);
+    pts.forEach(([px, py]) => ctx.lineTo(px + off, py));
+    ctx.lineTo(W + 260, H + 10); ctx.lineTo(-260, H + 10);
+    ctx.closePath(); ctx.fill();
+  };
+  drawRidge(FF.hillsFar, paraFar, '#0e1c38');
+
+  // 물안개 띠
+  const mist = ctx.createLinearGradient(0, H * 0.58, 0, H * 0.72);
+  mist.addColorStop(0, 'rgba(130,160,225,0)');
+  mist.addColorStop(0.5, 'rgba(130,160,225,0.07)');
+  mist.addColorStop(1, 'rgba(130,160,225,0)');
+  ctx.fillStyle = mist;
+  ctx.fillRect(0, H * 0.58, W, H * 0.14);
+
+  drawRidge(FF.hillsNear, paraNear, '#0a1526');
+  // 소나무들
+  ctx.fillStyle = '#071020';
+  FF.pines.forEach(p => {
+    const px = p.x + paraNear;
+    ctx.beginPath();
+    ctx.moveTo(px, p.y - p.h);
+    ctx.lineTo(px - p.h * 0.34, p.y);
+    ctx.lineTo(px + p.h * 0.34, p.y);
+    ctx.closePath(); ctx.fill();
+  });
+
+  // ── 땅 + 랜턴 불빛 웅덩이 ──
+  const ground = ctx.createLinearGradient(0, H * 0.8, 0, H);
+  ground.addColorStop(0, '#081120'); ground.addColorStop(1, '#04080f');
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, H * 0.78, W, H * 0.22);
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const pool = ctx.createRadialGradient(L.x, H * 0.88, 0, L.x, H * 0.88, 130);
+  const poolA = Math.max(0, 0.14 * (1 - Math.abs(L.y - H * 0.7) / (H * 0.7)) + 0.05);
+  pool.addColorStop(0, `rgba(255,190,90,${poolA})`);
+  pool.addColorStop(1, 'rgba(255,190,90,0)');
+  ctx.fillStyle = pool;
+  ctx.beginPath(); ctx.ellipse(L.x, H * 0.88, 130, 42, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // ── 풀 뒷줄 ──
+  _ffDrawGrass(ctx, FF.grassBack, H, gust, L, 1.1, 10, 0.75);
+
+  // ── 반딧불이 ──
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  FF.flies.forEach(f => {
+    const pulse = 0.55 + 0.45 * Math.sin(t * f.pl * (Math.PI * 2) + f.ph);
+    let alpha = f.golden ? 0.95 : 0.8;
+    if (f.golden && f.life < 120) alpha *= f.life / 120;   // 떠나기 전 잦아듦
+    if (f.state === 'caught') alpha *= 1 - f.ct * 0.4;
+    const hue = f.golden ? 45 : 68 + Math.sin(f.ph) * 12;
+    const rr = f.r * (f.state === 'caught' ? 1 + f.ct * 0.6 : 1);
+
+    const glow = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, rr * 7);
+    glow.addColorStop(0, `hsla(${hue},100%,68%,${0.20 * pulse * alpha})`);
+    glow.addColorStop(1, `hsla(${hue},100%,60%,0)`);
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(f.x, f.y, rr * 7, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = `hsla(${hue},100%,${72 + pulse * 14}%,${alpha})`;
+    ctx.beginPath(); ctx.arc(f.x, f.y, rr * (0.75 + pulse * 0.35), 0, Math.PI * 2); ctx.fill();
+
+    if (f.golden) {   // 황금빛 십자 반짝임
+      ctx.strokeStyle = `hsla(48,100%,80%,${0.5 * pulse * alpha})`;
+      ctx.lineWidth = 1;
+      const sl = rr * 3.4 * pulse;
+      ctx.beginPath();
+      ctx.moveTo(f.x - sl, f.y); ctx.lineTo(f.x + sl, f.y);
+      ctx.moveTo(f.x, f.y - sl); ctx.lineTo(f.x, f.y + sl);
+      ctx.stroke();
+    }
+  });
+
+  // 파동 링
+  FF.pulses.forEach(p => {
+    ctx.strokeStyle = `rgba(255,228,150,${p.life * 0.55})`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,246,210,${p.life * 0.22})`;
+    ctx.lineWidth = 7;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 0.86, 0, Math.PI * 2); ctx.stroke();
+  });
+
+  // 스파크
+  FF.sparks.forEach(s => {
+    ctx.fillStyle = s.golden
+      ? `rgba(255,222,90,${s.life * 0.9})`
+      : `rgba(210,255,150,${s.life * 0.85})`;
+    ctx.beginPath(); ctx.arc(s.x, s.y, 1.6 + s.life * 1.4, 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.restore();
+
+  // ── 랜턴 ──
+  _ffDrawLantern(ctx, L, t);
+
+  // ── 풀 앞줄 (랜턴 아래를 살짝 가려 깊이감) ──
+  _ffDrawGrass(ctx, FF.grassFront, H, gust, L, 1.5, 7, 1);
+
+  // ── 팝업 텍스트 ──
+  FF.popups.forEach(p => {
+    const k = p.life / p.maxLife;                       // 1 → 0
+    const alpha = k > 0.85 ? (1 - k) / 0.15 : (k < 0.3 ? k / 0.3 : 1);
+    const rise = (1 - k) * 30;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, alpha);
+    ctx.font = `bold ${p.size}px Gowun Dodum, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.shadowBlur = 9; ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, p.x, p.y - rise);
+    ctx.restore();
+  });
+
+  // ── 안내 문구 (첫 포획 전) ──
+  if (FF.caught === 0) {
+    const a = 0.5 + Math.sin(t * 0.05) * 0.25;
+    ctx.fillStyle = `rgba(255,240,200,${a})`;
+    ctx.font = '13px Gowun Dodum, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('랜턴을 움직여 반딧불이 곁에서 클릭해보세요 ✨', W / 2, 28);
+  }
+
+  // ── 비네트 ──
+  const vig = ctx.createRadialGradient(W / 2, H * 0.55, H * 0.4, W / 2, H * 0.55, H * 1.05);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.34)');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function _ffDrawGrass(ctx, blades, H, gust, L, lw, tint, alpha) {
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = alpha;
+  blades.forEach(b => {
+    const sway = Math.sin(FF.t * b.sp + b.ph) * 3 + gust * 2.4;
+    const lit = Math.max(0, 1 - Math.hypot(b.x - L.x, H - 6 - L.y) / 175);
+    ctx.strokeStyle = `hsl(96, 42%, ${tint + lit * 30}%)`;
+    ctx.lineWidth = lw;
+    ctx.beginPath();
+    ctx.moveTo(b.x, H + 2);
+    ctx.quadraticCurveTo(
+      b.x + b.lean * 0.4 + sway * 0.4, H - b.h * 0.55,
+      b.x + b.lean + sway, H - b.h
+    );
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function _ffDrawLantern(ctx, L, t) {
+  const x = L.x, y = L.y + Math.sin(t * 0.045) * 2.5;   // 둥실둥실
+  const flick = 0.86 + Math.sin(t * 0.32) * 0.07 + Math.sin(t * 0.11 + 2) * 0.07;
+  const now = performance.now();
+  const gw = 14, gh = 18;   // 유리 몸통 절반 크기
+
+  // 넓은 온기 글로우
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const amb = ctx.createRadialGradient(x, y, 0, x, y, 150);
+  amb.addColorStop(0,    `rgba(255,196,96,${0.28 * flick})`);
+  amb.addColorStop(0.45, `rgba(255,170,60,${0.10 * flick})`);
+  amb.addColorStop(1,    'rgba(255,150,40,0)');
+  ctx.fillStyle = amb;
+  ctx.beginPath(); ctx.arc(x, y, 150, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // 파동 쿨다운 게이지 / 준비 완료 링
+  const prog = Math.min(1, (now - FF.lastPulseAt) / FF_PULSE_CD);
+  if (prog < 1) {
+    ctx.strokeStyle = 'rgba(255,220,150,0.38)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 27, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2);
+    ctx.stroke();
+  } else {
+    const br = 0.5 + Math.sin(t * 0.09) * 0.5;
+    ctx.strokeStyle = `rgba(255,235,180,${0.10 + br * 0.12})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(x, y, 27 + br * 2.5, 0, Math.PI * 2); ctx.stroke();
+  }
+
+  // 손잡이 고리 + 뚜껑
+  ctx.strokeStyle = '#3a2c1c'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(x, y - gh - 12, 5.5, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#4a3822';
+  ctx.beginPath();
+  ctx.moveTo(x - 10, y - gh);
+  ctx.lineTo(x - 6, y - gh - 7);
+  ctx.lineTo(x + 6, y - gh - 7);
+  ctx.lineTo(x + 10, y - gh);
+  ctx.closePath(); ctx.fill();
+
+  // 유리 몸통
+  const glass = ctx.createLinearGradient(x, y - gh, x, y + gh);
+  glass.addColorStop(0,   `rgba(255,220,140,${0.24 * flick})`);
+  glass.addColorStop(0.5, `rgba(255,190,90,${0.36 * flick})`);
+  glass.addColorStop(1,   `rgba(255,160,60,${0.22 * flick})`);
+  ctx.fillStyle = glass;
+  _ffRoundRectPath(ctx, x - gw, y - gh, gw * 2, gh * 2, 7);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(74,56,34,0.9)'; ctx.lineWidth = 2;
+  ctx.stroke();
+  // 세로 창살
+  ctx.strokeStyle = 'rgba(74,56,34,0.5)'; ctx.lineWidth = 1.2;
+  [x - 4.5, x + 4.5].forEach(bx => {
+    ctx.beginPath(); ctx.moveTo(bx, y - gh + 2); ctx.lineTo(bx, y + gh - 2); ctx.stroke();
+  });
+  // 받침
+  ctx.fillStyle = '#4a3822';
+  ctx.fillRect(x - 11, y + gh - 1, 22, 4);
+
+  // 심지 불꽃 + 모은 반딧불이들이 유리 속을 맴돈다
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const flame = ctx.createRadialGradient(x, y + 3, 0, x, y + 3, 12);
+  flame.addColorStop(0,   `rgba(255,255,230,${0.95 * flick})`);
+  flame.addColorStop(0.4, `rgba(255,210,110,${0.55 * flick})`);
+  flame.addColorStop(1,   'rgba(255,160,50,0)');
+  ctx.fillStyle = flame;
+  ctx.beginPath(); ctx.arc(x, y + 3, 12, 0, Math.PI * 2); ctx.fill();
+
+  FF.jar.forEach(j => {
+    j.ang += j.spd;
+    const jx = x + Math.cos(j.ang) * j.rr;
+    const jy = y + Math.sin(j.ang * 1.3) * gh * 0.5;
+    const jp = 0.6 + 0.4 * Math.sin(t * 0.07 + j.ang * 3);
+    ctx.fillStyle = j.golden
+      ? `rgba(255,225,110,${0.85 * jp})`
+      : `rgba(215,255,150,${0.8 * jp})`;
+    ctx.beginPath(); ctx.arc(jx, jy, 1.7, 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.restore();
+}
+
+function _ffRoundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y); ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h); ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
 function studyInputKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -3968,3 +5084,1086 @@ function studyInputKeydown(e) {
   }, 0);
 }
 
+
+/* ============================================================
+   ACCESSIBILITY / MOTION
+   ============================================================ */
+const PREFERS_REDUCED_MOTION =
+  window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ============================================================
+   UTIL — HTML entity decode (YouTube API titles)
+   ============================================================ */
+function htmlDecode(str) {
+  const t = document.createElement('textarea');
+  t.innerHTML = String(str);
+  return t.value;
+}
+
+/* ============================================================
+   TOAST SYSTEM
+   ============================================================ */
+function showToast(msg, icon = '🌿') {
+  const root = document.getElementById('toast-root');
+  if (!root) return;
+  // 최대 3개까지만 쌓기
+  while (root.children.length >= 3) root.removeChild(root.firstChild);
+
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span class="toast-icon">${icon}</span><span class="toast-msg">${escHtml(msg)}</span>`;
+  root.appendChild(el);
+
+  setTimeout(() => {
+    el.classList.add('toast-out');
+    setTimeout(() => el.remove(), 350);
+  }, 2800);
+}
+
+/* ============================================================
+   STUDY LOG — focus minutes & completed tasks per day
+   (하루 키: todayStr() 형식 "YYYY-M-D")
+   ============================================================ */
+const FOCUS_LOG_KEY = 'hs_focus_log_v1';
+const TASKS_LOG_KEY = 'hs_tasks_log_v1';
+
+function getLog(key) {
+  try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (_) { return {}; }
+}
+
+function bumpLog(key, dateStr, delta) {
+  const log = getLog(key);
+  log[dateStr] = Math.max(0, (log[dateStr] || 0) + delta);
+  if (log[dateStr] === 0) delete log[dateStr];
+  try { localStorage.setItem(key, JSON.stringify(log)); } catch (_) {}
+}
+
+function dateStrOffset(daysAgo) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+function getTodayFocusMin()  { return getLog(FOCUS_LOG_KEY)[todayStr()] || 0; }
+
+function getWeekFocusMin() {
+  const log = getLog(FOCUS_LOG_KEY);
+  let sum = 0;
+  for (let i = 0; i < 7; i++) sum += log[dateStrOffset(i)] || 0;
+  return sum;
+}
+
+function getTotalFocusMin() {
+  const log = getLog(FOCUS_LOG_KEY);
+  return Object.values(log).reduce((a, b) => a + b, 0);
+}
+
+function getTotalTasks() {
+  const log = getLog(TASKS_LOG_KEY);
+  return Object.values(log).reduce((a, b) => a + b, 0);
+}
+
+function dayPoints(dateStr) {
+  const f = getLog(FOCUS_LOG_KEY)[dateStr] || 0;
+  const t = getLog(TASKS_LOG_KEY)[dateStr] || 0;
+  return f + t * 5;
+}
+
+/* ── 연속 공부 스트릭 ── */
+function calcStreak() {
+  const focus = getLog(FOCUS_LOG_KEY);
+  const tasks = getLog(TASKS_LOG_KEY);
+  const active = d => (focus[d] || 0) > 0 || (tasks[d] || 0) > 0;
+
+  let streak = 0;
+  let i = active(dateStrOffset(0)) ? 0 : 1;  // 오늘 아직 안 했으면 어제부터 소급
+  while (active(dateStrOffset(i))) { streak++; i++; }
+  return streak;
+}
+
+/* ── 성장 레벨 ── */
+const LEVELS = [
+  { min: 0,    name: '새싹',          tree: '🌱' },
+  { min: 100,  name: '초록 잎새',     tree: '🌿' },
+  { min: 250,  name: '자라는 화분',   tree: '🪴' },
+  { min: 500,  name: '어린나무',      tree: '🌳' },
+  { min: 900,  name: '튼튼한 나무',   tree: '🌲' },
+  { min: 1500, name: '꽃피는 나무',   tree: '🌸' },
+  { min: 2400, name: '열매 맺는 나무', tree: '🍎' },
+  { min: 3600, name: '숲의 큰 나무',  tree: '🎄' },
+  { min: 5200, name: '빛나는 나무',   tree: '🌟' },
+  { min: 7500, name: '전설의 숲',     tree: '🌈' },
+];
+
+function calcPoints() {
+  return getTotalFocusMin() + getTotalTasks() * 5;
+}
+
+function getLevelInfo(points) {
+  let idx = 0;
+  for (let i = 0; i < LEVELS.length; i++) if (points >= LEVELS[i].min) idx = i;
+  const cur  = LEVELS[idx];
+  const next = LEVELS[idx + 1] || null;
+  const progress = next
+    ? Math.min(100, Math.round(((points - cur.min) / (next.min - cur.min)) * 100))
+    : 100;
+  return { level: idx + 1, name: cur.name, tree: cur.tree, next, progress, points };
+}
+
+/* ============================================================
+   HOME STATS + SIDEBAR LEVEL
+   ============================================================ */
+function updateHomeStats() {
+  const lv = getLevelInfo(calcPoints());
+
+  const focusEl  = document.getElementById('hstat-focus');
+  const streakEl = document.getElementById('hstat-streak');
+  const tasksEl  = document.getElementById('hstat-tasks');
+  const levelEl  = document.getElementById('hstat-level');
+  const treeEl   = document.getElementById('hstat-tree');
+
+  if (focusEl)  focusEl.textContent  = `${getTodayFocusMin()}분`;
+  if (streakEl) streakEl.textContent = `${calcStreak()}일`;
+  if (tasksEl) {
+    const total = state.checklist.items.length;
+    const done  = state.checklist.items.filter(i => i.done).length;
+    tasksEl.textContent = `${done}/${total}`;
+  }
+  if (levelEl) levelEl.textContent = `LV.${lv.level}`;
+  if (treeEl)  treeEl.textContent  = lv.tree;
+
+  // 사이드바 미니 레벨
+  const slTree = document.getElementById('sl-tree');
+  const slLv   = document.getElementById('sl-level');
+  const slBar  = document.getElementById('sl-bar-fill');
+  if (slTree) slTree.textContent = lv.tree;
+  if (slLv)   slLv.textContent   = `LV.${lv.level} ${lv.name}`;
+  if (slBar)  slBar.style.width  = `${lv.progress}%`;
+}
+
+function updateTimerTodayHint() {
+  const el = document.getElementById('timer-today-hint');
+  if (!el) return;
+  const min = getTodayFocusMin();
+  el.textContent = min > 0 ? `오늘 집중 ${min}분` : '오늘의 첫 집중을 시작해봐요';
+}
+
+/* ============================================================
+   STATS PAGE — 공부 기록
+   ============================================================ */
+function renderStats() {
+  const focusLog = getLog(FOCUS_LOG_KEY);
+
+  /* ── 상단 타일 ── */
+  const todayMin = getTodayFocusMin();
+  const weekMin  = getWeekFocusMin();
+  const totalMin = getTotalFocusMin();
+  const streak   = calcStreak();
+
+  const fmtLong = m => m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60 ? (m % 60) + '분' : ''}`.trim() : `${m}분`;
+
+  const stToday  = document.getElementById('st-today');
+  const stWeek   = document.getElementById('st-week');
+  const stStreak = document.getElementById('st-streak');
+  const stTotal  = document.getElementById('st-total');
+  if (stToday)  stToday.textContent  = `${todayMin}분`;
+  if (stWeek)   stWeek.textContent   = fmtLong(weekMin);
+  if (stStreak) stStreak.textContent = `${streak}일`;
+  if (stTotal)  stTotal.textContent  = totalMin >= 60 ? `${(totalMin / 60).toFixed(1)}시간` : `${totalMin}분`;
+
+  /* ── 최근 7일 바 차트 ── */
+  const chart = document.getElementById('stats-week-chart');
+  if (chart) {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const ds = dateStrOffset(i);
+      const d  = new Date();
+      d.setDate(d.getDate() - i);
+      days.push({ ds, min: focusLog[ds] || 0, label: DAYS_SHORT[d.getDay()], isToday: i === 0 });
+    }
+    const max = Math.max(...days.map(d => d.min), 30);
+    chart.innerHTML = days.map(d => `
+      <div class="wc-col${d.isToday ? ' wc-today' : ''}" title="${d.ds} · ${d.min}분">
+        <span class="wc-val">${d.min > 0 ? d.min : ''}</span>
+        <div class="wc-bar-track">
+          <div class="wc-bar" style="height:${Math.max(d.min / max * 100, d.min > 0 ? 5 : 2)}%"></div>
+        </div>
+        <span class="wc-day">${d.label}</span>
+      </div>
+    `).join('');
+  }
+
+  /* ── 성장 나무 ── */
+  const lv = getLevelInfo(calcPoints());
+  const tEl  = document.getElementById('stats-tree');
+  const nEl  = document.getElementById('stats-level-name');
+  const bEl  = document.getElementById('stats-level-bar');
+  const nxEl = document.getElementById('stats-level-next');
+  if (tEl)  tEl.textContent = lv.tree;
+  if (nEl)  nEl.textContent = `LV.${lv.level} ${lv.name}`;
+  if (bEl)  bEl.style.width = `${lv.progress}%`;
+  if (nxEl) nxEl.textContent = lv.next
+    ? `다음 레벨(${lv.next.tree} ${lv.next.name})까지 ${lv.next.min - lv.points}P`
+    : '최고 레벨 달성! 🎉';
+
+  /* ── 12주 잔디 히트맵 ── */
+  const hm = document.getElementById('stats-heatmap');
+  if (hm) {
+    const today = new Date();
+    const dow = today.getDay(); // 0 = 일요일
+    // 이번 주 일요일에서 11주 전 일요일까지
+    const start = new Date(today);
+    start.setDate(today.getDate() - dow - 7 * 11);
+
+    let cells = '';
+    for (let w = 0; w < 12; w++) {
+      for (let d = 0; d < 7; d++) {
+        const cur = new Date(start);
+        cur.setDate(start.getDate() + w * 7 + d);
+        const ds = `${cur.getFullYear()}-${cur.getMonth() + 1}-${cur.getDate()}`;
+        if (cur > today) {
+          cells += `<span class="hm-cell hm-future"></span>`;
+          continue;
+        }
+        const p = dayPoints(ds);
+        const cls = p === 0 ? 'hm-0' : p < 15 ? 'hm-1' : p < 30 ? 'hm-2' : p < 60 ? 'hm-3' : 'hm-4';
+        const f = getLog(FOCUS_LOG_KEY)[ds] || 0;
+        const t = getLog(TASKS_LOG_KEY)[ds] || 0;
+        cells += `<span class="hm-cell ${cls}" title="${cur.getMonth() + 1}/${cur.getDate()} · 집중 ${f}분 · 할 일 ${t}개"></span>`;
+      }
+    }
+    hm.innerHTML = cells;
+  }
+}
+
+/* ============================================================
+   FLASHCARDS — 암기 카드
+   ============================================================ */
+const FC_STORAGE_KEY = 'hs_flashcards_v1';
+
+const fcState = {
+  deckId: null,     // 열려 있는 덱
+  queue: [],        // 학습 큐 (카드 객체 참조)
+  idx: 0,
+  flipped: false,
+  againIds: [],     // 이번 세션에서 "다시 볼래요"한 카드
+  knowCount: 0
+};
+
+function fcLoad() {
+  try {
+    const data = JSON.parse(localStorage.getItem(FC_STORAGE_KEY));
+    if (data && Array.isArray(data.decks)) return data;
+  } catch (_) {}
+  return { decks: [] };
+}
+
+function fcSave(data) {
+  try { localStorage.setItem(FC_STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
+}
+
+function fcGetDeck(data, id) { return data.decks.find(d => d.id === id); }
+
+function fcInit() {
+  // 학습 모드 키보드 조작: Space=뒤집기, ←=다시, →=외웠어요
+  document.addEventListener('keydown', (e) => {
+    const studyView = document.getElementById('fc-study-view');
+    if (!studyView || studyView.style.display === 'none') return;
+    if (!document.getElementById('page-cards').classList.contains('active')) return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    const doneVisible = document.getElementById('fc-study-done').style.display !== 'none';
+    if (doneVisible) return;
+
+    if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); fcFlip(); }
+    else if (e.key === 'ArrowLeft'  && fcState.flipped) fcAnswer(false);
+    else if (e.key === 'ArrowRight' && fcState.flipped) fcAnswer(true);
+  });
+}
+
+/* ── 뷰 전환 ── */
+function fcShowView(view) {
+  document.getElementById('fc-deck-list-view').style.display = view === 'list'  ? 'block' : 'none';
+  document.getElementById('fc-deck-view').style.display      = view === 'deck'  ? 'block' : 'none';
+  document.getElementById('fc-study-view').style.display     = view === 'study' ? 'block' : 'none';
+}
+
+/* ── 덱 목록 ── */
+function fcRenderDecks() {
+  fcShowView(fcState.deckId ? 'deck' : 'list');
+  if (fcState.deckId) { fcRenderDeckView(); return; }
+
+  const data  = fcLoad();
+  const grid  = document.getElementById('fc-deck-grid');
+  const empty = document.getElementById('fc-empty');
+  if (!grid) return;
+
+  if (data.decks.length === 0) {
+    grid.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  grid.innerHTML = data.decks.map(d => {
+    const known = d.cards.filter(c => !c.miss).length;
+    const pct   = d.cards.length ? Math.round(known / d.cards.length * 100) : 0;
+    return `
+      <div class="fc-deck-card" onclick="fcOpenDeck('${d.id}')" role="button" tabindex="0"
+           onkeydown="if(event.key==='Enter') fcOpenDeck('${d.id}')">
+        <button class="fc-deck-del" title="묶음 삭제"
+          onclick="event.stopPropagation();fcDeleteDeck('${d.id}')">✕</button>
+        <div class="fc-deck-icon">🃏</div>
+        <div class="fc-deck-name">${escHtml(d.name)}</div>
+        <div class="fc-deck-count">카드 ${d.cards.length}장${d.cards.length ? ` · 외운 카드 ${known}장` : ''}</div>
+        <div class="fc-deck-bar"><div class="fc-deck-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+  }).join('');
+}
+
+function fcCreateDeck() {
+  const input = document.getElementById('fc-new-deck-input');
+  const name = input.value.trim();
+  if (!name) {
+    input.focus();
+    input.style.borderColor = '#D45C5C';
+    setTimeout(() => input.style.borderColor = '', 1200);
+    return;
+  }
+  const data = fcLoad();
+  const id = genId();
+  data.decks.unshift({ id, name, cards: [], created: Date.now() });
+  fcSave(data);
+  input.value = '';
+  showToast(`「${name}」 묶음을 만들었어요`, '🃏');
+  fcOpenDeck(id);
+}
+
+function fcDeleteDeck(id) {
+  const data = fcLoad();
+  const deck = fcGetDeck(data, id);
+  if (!deck) return;
+  if (!confirm(`「${deck.name}」 묶음(카드 ${deck.cards.length}장)을 삭제할까요?`)) return;
+  data.decks = data.decks.filter(d => d.id !== id);
+  fcSave(data);
+  if (fcState.deckId === id) fcState.deckId = null;
+  fcRenderDecks();
+}
+
+/* ── 덱 상세 ── */
+function fcOpenDeck(id) {
+  fcState.deckId = id;
+  fcShowView('deck');
+  fcRenderDeckView();
+  setTimeout(() => {
+    const el = document.getElementById('fc-front-input');
+    if (el) el.focus();
+  }, 80);
+}
+
+function fcBackToDecks() {
+  fcState.deckId = null;
+  fcRenderDecks();
+}
+
+function fcRenderDeckView() {
+  const data = fcLoad();
+  const deck = fcGetDeck(data, fcState.deckId);
+  if (!deck) { fcState.deckId = null; fcRenderDecks(); return; }
+
+  document.getElementById('fc-deck-title').textContent = deck.name;
+  const studyBtn = document.getElementById('fc-study-btn');
+  if (studyBtn) studyBtn.disabled = deck.cards.length === 0;
+
+  const list = document.getElementById('fc-card-list');
+  if (!list) return;
+  if (deck.cards.length === 0) {
+    list.innerHTML = `<div class="empty-state-small">아직 카드가 없어요. 직접 추가하거나 AI로 만들어보세요! ✨</div>`;
+    return;
+  }
+  list.innerHTML = deck.cards.map((c, i) => `
+    <div class="fc-card-row${c.miss ? ' fc-row-miss' : ''}">
+      <span class="fc-row-num">${i + 1}</span>
+      <span class="fc-row-front">${escHtml(c.front)}</span>
+      <span class="fc-row-arrow">→</span>
+      <span class="fc-row-back">${escHtml(c.back)}</span>
+      ${c.miss ? '<span class="fc-row-tag">복습 필요</span>' : ''}
+      <button class="fc-row-del" title="카드 삭제" onclick="fcDeleteCard('${c.id}')">✕</button>
+    </div>
+  `).join('');
+}
+
+function fcAddCard() {
+  const frontEl = document.getElementById('fc-front-input');
+  const backEl  = document.getElementById('fc-back-input');
+  const front = frontEl.value.trim();
+  const back  = backEl.value.trim();
+  if (!front || !back) {
+    const target = !front ? frontEl : backEl;
+    target.focus();
+    target.style.borderColor = '#D45C5C';
+    setTimeout(() => target.style.borderColor = '', 1200);
+    return;
+  }
+  const data = fcLoad();
+  const deck = fcGetDeck(data, fcState.deckId);
+  if (!deck) return;
+  deck.cards.push({ id: genId(), front, back, miss: false });
+  fcSave(data);
+  frontEl.value = '';
+  backEl.value = '';
+  frontEl.focus();
+  fcRenderDeckView();
+}
+
+function fcDeleteCard(cardId) {
+  const data = fcLoad();
+  const deck = fcGetDeck(data, fcState.deckId);
+  if (!deck) return;
+  deck.cards = deck.cards.filter(c => c.id !== cardId);
+  fcSave(data);
+  fcRenderDeckView();
+}
+
+/* ── AI 카드 생성 ── */
+async function fcGenerateAI() {
+  const topicEl = document.getElementById('fc-ai-topic');
+  const btn     = document.getElementById('fc-ai-btn');
+  const topic = topicEl.value.trim();
+  if (!topic) {
+    topicEl.focus();
+    topicEl.style.borderColor = '#D45C5C';
+    setTimeout(() => topicEl.style.borderColor = '', 1200);
+    return;
+  }
+  const apiKey = localStorage.getItem(OPENAI_KEY_STORAGE);
+  if (!apiKey) { showSettingsModal(); return; }
+
+  const deckId = fcState.deckId;
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = '✨ 만드는 중...';
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-mini',
+        max_tokens: 1200,
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: '당신은 중고등학생용 암기 카드를 만드는 전문가입니다. 항상 유효한 JSON만 반환합니다.'
+          },
+          {
+            role: 'user',
+            content: `주제: "${topic}"\n\n이 주제로 홈스쿨러 학생을 위한 암기 카드 8장을 만들어주세요.\n앞면(front)은 질문/단어, 뒷면(back)은 답/뜻으로, 짧고 명확하게.\n아래 JSON 형식으로만 응답:\n{"cards":[{"front":"...","back":"..."}]}`
+          }
+        ]
+      })
+    });
+    const json = await resp.json();
+    if (json.error) throw new Error(json.error.message);
+    const parsed = JSON.parse(json.choices[0].message.content);
+    const cards = (parsed.cards || []).filter(c => c.front && c.back);
+    if (!cards.length) throw new Error('카드를 만들지 못했어요. 주제를 조금 바꿔보세요.');
+
+    const data = fcLoad();
+    const deck = fcGetDeck(data, deckId);
+    if (!deck) throw new Error('카드 묶음을 찾을 수 없어요.');
+    cards.forEach(c => deck.cards.push({
+      id: genId(),
+      front: String(c.front).slice(0, 200),
+      back:  String(c.back).slice(0, 300),
+      miss: false
+    }));
+    fcSave(data);
+    topicEl.value = '';
+    showToast(`AI가 카드 ${cards.length}장을 만들었어요`, '✨');
+    if (fcState.deckId === deckId) fcRenderDeckView();
+  } catch (err) {
+    showToast('오류: ' + err.message, '⚠️');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origText;
+  }
+}
+
+/* ── 학습 모드 ── */
+function fcStartStudy(reviewOnly = false) {
+  const data = fcLoad();
+  const deck = fcGetDeck(data, fcState.deckId);
+  if (!deck || deck.cards.length === 0) return;
+
+  let cards = reviewOnly ? deck.cards.filter(c => c.miss) : [...deck.cards];
+  if (cards.length === 0) cards = [...deck.cards];
+
+  // 셔플
+  for (let i = cards.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cards[i], cards[j]] = [cards[j], cards[i]];
+  }
+
+  fcState.queue = cards;
+  fcState.idx = 0;
+  fcState.flipped = false;
+  fcState.againIds = [];
+  fcState.knowCount = 0;
+
+  fcShowView('study');
+  document.getElementById('fc-study-done').style.display = 'none';
+  document.getElementById('fc-flip-card').style.display = '';
+  document.getElementById('fc-study-actions').style.display = '';
+  fcShowCurrentCard();
+}
+
+function fcShowCurrentCard() {
+  const card = fcState.queue[fcState.idx];
+  if (!card) { fcFinishStudy(); return; }
+
+  fcState.flipped = false;
+  const inner = document.getElementById('fc-flip-inner');
+  inner.classList.remove('flipped');
+  // 카드 전환 시 살짝 등장 애니메이션
+  const stage = document.getElementById('fc-flip-card');
+  stage.classList.remove('fc-enter');
+  void stage.offsetWidth; // reflow로 애니메이션 재시작
+  stage.classList.add('fc-enter');
+
+  document.getElementById('fc-face-front-text').textContent = card.front;
+  document.getElementById('fc-face-back-text').textContent  = card.back;
+  document.getElementById('fc-study-progress').textContent =
+    `${fcState.idx + 1} / ${fcState.queue.length}`;
+
+  fcUpdateAnswerButtons();
+}
+
+function fcFlip() {
+  if (!fcState.queue[fcState.idx]) return;
+  fcState.flipped = !fcState.flipped;
+  document.getElementById('fc-flip-inner').classList.toggle('flipped', fcState.flipped);
+  fcUpdateAnswerButtons();
+}
+
+function fcUpdateAnswerButtons() {
+  document.querySelectorAll('#fc-study-actions button').forEach(b => {
+    b.disabled = !fcState.flipped;
+  });
+}
+
+function fcAnswer(know) {
+  const card = fcState.queue[fcState.idx];
+  if (!card || !fcState.flipped) return;
+
+  // 결과 저장 (miss 플래그 영구 반영)
+  const data = fcLoad();
+  const deck = fcGetDeck(data, fcState.deckId);
+  if (deck) {
+    const target = deck.cards.find(c => c.id === card.id);
+    if (target) target.miss = !know;
+    fcSave(data);
+  }
+  if (know) fcState.knowCount++;
+  else fcState.againIds.push(card.id);
+
+  fcState.idx++;
+  if (fcState.idx >= fcState.queue.length) fcFinishStudy();
+  else fcShowCurrentCard();
+}
+
+function fcFinishStudy() {
+  const total = fcState.queue.length;
+  const know  = fcState.knowCount;
+  const again = fcState.againIds.length;
+
+  document.getElementById('fc-flip-card').style.display = 'none';
+  document.getElementById('fc-study-actions').style.display = 'none';
+  const done = document.getElementById('fc-study-done');
+  done.style.display = 'block';
+
+  const title = document.getElementById('fc-done-title');
+  const sub   = document.getElementById('fc-done-sub');
+  if (again === 0) {
+    title.textContent = '전부 외웠어요! 🏆';
+    sub.textContent = `카드 ${total}장을 모두 완벽하게 외웠어요. 최고예요!`;
+    if (particles) particles.burst(window.innerWidth * 0.5, window.innerHeight * 0.35);
+  } else {
+    title.textContent = '학습 완료!';
+    sub.textContent = `${total}장 중 ${know}장을 외웠어요. 남은 ${again}장은 복습으로 정복해봐요!`;
+  }
+
+  // "다시 볼 카드만 복습" 버튼: 복습할 카드가 없으면 숨김
+  const reviewBtn = document.querySelector('#fc-study-done .fc-done-actions .btn-primary');
+  if (reviewBtn) reviewBtn.style.display = again > 0 ? '' : 'none';
+}
+
+function fcExitStudy() {
+  fcShowView('deck');
+  fcRenderDeckView();
+}
+
+/* ============================================================
+   PAPER PLANE CITY FLIGHT (종이비행기 도시비행) — Three.js 3D
+   노을 지는 저녁, 로우폴리 도시 사이를 종이비행기로 활공하며
+   금빛 링을 통과하는 3D 미니게임. 실패 없음 — 부딪히면 살짝 튕겨날 뿐.
+   월드 원점은 항상 0 근처: 비행기는 제자리, 도시와 링이 흘러온다.
+   ============================================================ */
+const PP_SPEED      = 40;    // 기본 전진 속도 (unit/s)
+const PP_BOOST_MULT = 1.6;   // 부스트 배속 (마우스 꾹 / 스페이스)
+const PP_BUILDINGS  = 54;    // 재활용 빌딩 풀 크기
+const PP_RINGS      = 7;     // 재활용 링 풀 크기
+const PP_SPAN       = 300;   // 빌딩이 순환하는 z 구간 길이
+
+const PP = {
+  initialized: false, failed: false, rafId: null,
+  container: null, renderer: null, scene: null, camera: null,
+  plane: null, buildings: [], rings: [], groundTex: null,
+  hitFlashEl: null,
+  px: 0, py: 8, tx: 0, ty: 8,          // 비행기 위치 / 목표 위치
+  knockX: 0, knockY: 0,                 // 충돌 넉백 속도
+  shake: 0, hitT: 0,                    // 카메라 흔들림 / 화면 붉은 플래시
+  boost: false,
+  keys: { up: false, down: false, left: false, right: false },
+  score: 0, ringCount: 0, dist: 0, distShown: -1,
+  lastT: 0, t: 0
+};
+
+function ensurePaperInit() {
+  if (PP.initialized) return;
+  const box = document.getElementById('pp-canvas-container');
+  if (!box) return;
+  PP.initialized = true;
+  try {
+    if (typeof THREE === 'undefined') throw new Error('THREE not loaded');
+
+    PP.container = box;
+    PP.renderer = new THREE.WebGLRenderer({ antialias: true });
+    PP.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    box.appendChild(PP.renderer.domElement);
+
+    PP.scene = new THREE.Scene();
+    PP.scene.background = _ppMakeSkyTexture();
+    PP.scene.fog = new THREE.Fog(0xe0906c, 55, 250);   // 먼 도시가 노을빛 속으로 사라진다
+
+    PP.camera = new THREE.PerspectiveCamera(62, 16 / 9, 0.1, 500);
+    PP.camera.position.set(0, 10.5, 8);
+
+    // 조명 — 낮게 걸린 노을 태양 + 부드러운 반구광 (그림자 맵 없음: 가벼움 유지)
+    PP.scene.add(new THREE.HemisphereLight(0xffc9a0, 0x453552, 0.85));
+    const sun = new THREE.DirectionalLight(0xffb070, 1.0);
+    sun.position.set(-45, 55, -90);
+    PP.scene.add(sun);
+
+    _ppBuildGround();
+    _ppBuildCity();
+    _ppBuildPlane();
+    _ppBuildRings();
+
+    // 충돌 시 화면이 살짝 붉어지는 오버레이
+    const flash = document.createElement('div');
+    flash.className = 'pp-hit-flash';
+    box.appendChild(flash);
+    PP.hitFlashEl = flash;
+
+    // 조작: 마우스/터치 위치 → 목표 지점, 꾹 누르면 부스트, 화살표 키도 지원
+    box.addEventListener('mousemove', e => _ppPointer(e.clientX, e.clientY));
+    box.addEventListener('mousedown', e => { e.preventDefault(); PP.boost = true; _ppPointer(e.clientX, e.clientY); });
+    window.addEventListener('mouseup', () => { PP.boost = false; });
+    box.addEventListener('touchstart', e => { e.preventDefault(); PP.boost = true; _ppPointer(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    box.addEventListener('touchmove',  e => { e.preventDefault(); _ppPointer(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+    window.addEventListener('touchend', () => { PP.boost = false; });
+    window.addEventListener('keydown', e => _ppKey(e, true));
+    window.addEventListener('keyup',   e => _ppKey(e, false));
+
+    window.addEventListener('resize', _ppResize);
+    _ppResize();
+    _ppUpdateHUD();
+    // 루프는 ppResume()에서 시작 (탭/페이지가 보일 때만 돈다)
+  } catch (err) {
+    PP.failed = true;
+    box.innerHTML = '<div class="pp-fallback">지금은 3D 그래픽을 불러올 수 없어요 —<br>인터넷 연결을 확인해주세요 ✈️</div>';
+  }
+}
+
+function ppResume() {
+  if (!PP.initialized || PP.failed || PP.rafId) return;
+  _ppResize();                          // 숨겨진 채 초기화됐을 수 있으니 크기 재계산
+  PP.lastT = performance.now();
+  PP.rafId = requestAnimationFrame(ppTick);
+}
+
+function ppPause() {
+  if (PP.rafId) { cancelAnimationFrame(PP.rafId); PP.rafId = null; }
+}
+
+function resetPaperPlane() {
+  if (!PP.initialized || PP.failed) return;
+  PP.score = 0; PP.ringCount = 0; PP.dist = 0; PP.distShown = -1;
+  PP.px = 0; PP.py = 8; PP.tx = 0; PP.ty = 8;
+  PP.knockX = 0; PP.knockY = 0; PP.shake = 0; PP.hitT = 0; PP.boost = false;
+  PP.buildings.forEach(b => _ppPlaceBuilding(b, -20 - Math.random() * PP_SPAN));
+  let z = -45;
+  PP.rings.forEach(r => { _ppPlaceRing(r, z); z -= 30 + Math.random() * 14; });
+  _ppUpdateHUD();
+}
+
+function _ppResize() {
+  if (!PP.renderer || !PP.container) return;
+  const w = PP.container.clientWidth, h = PP.container.clientHeight;
+  if (!w || !h) return;                 // 탭이 숨겨진 상태면 건너뜀 (ppResume에서 재시도)
+  PP.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  PP.renderer.setSize(w, h);
+  PP.camera.aspect = w / h;
+  PP.camera.updateProjectionMatrix();
+}
+
+/* ── 씬 구성 ── */
+
+function _ppMakeSkyTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0.00, '#241c4e');   // 하늘 꼭대기: 깊은 남보라
+  grad.addColorStop(0.34, '#5c3a68');
+  grad.addColorStop(0.55, '#b05a6e');   // 장밋빛 중간층
+  grad.addColorStop(0.72, '#e88a62');
+  grad.addColorStop(0.84, '#ffb070');   // 지평선의 주황빛
+  grad.addColorStop(1.00, '#ffd9a0');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 512, 512);
+  // 낮게 걸린 태양의 빛무리
+  const sun = g.createRadialGradient(300, 408, 6, 300, 408, 120);
+  sun.addColorStop(0.00, 'rgba(255,240,200,0.95)');
+  sun.addColorStop(0.22, 'rgba(255,205,135,0.55)');
+  sun.addColorStop(1.00, 'rgba(255,180,110,0)');
+  g.fillStyle = sun;
+  g.fillRect(0, 0, 512, 512);
+  return new THREE.CanvasTexture(c);
+}
+
+function _ppBuildGround() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a2138';
+  g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = 'rgba(255,170,110,0.15)';  // 블록 사이 은은한 가로등 불빛 선
+  g.lineWidth = 3;
+  g.strokeRect(6, 6, 116, 116);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(10, 24);
+  PP.groundTex = tex;
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(240, 560),
+    new THREE.MeshLambertMaterial({ map: tex })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(0, 0, -160);
+  PP.scene.add(ground);
+}
+
+function _ppMakeBuildingMats() {
+  const bases = ['#3a2f4e', '#33293f', '#452e44', '#2c3350'];
+  return bases.map(base => {
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 128;
+    const g = c.getContext('2d');
+    g.fillStyle = base;
+    g.fillRect(0, 0, 64, 128);
+    for (let y = 6; y < 122; y += 12) {
+      for (let x = 5; x < 60; x += 10) {
+        if (Math.random() < 0.42) {
+          g.fillStyle = Math.random() < 0.8 ? '#ffb45e' : '#ffe2a6';  // 불 켜진 창
+          g.fillRect(x, y, 5, 7);
+        } else {
+          g.fillStyle = 'rgba(0,0,0,0.28)';                            // 꺼진 창
+          g.fillRect(x, y, 5, 7);
+        }
+      }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    const side = new THREE.MeshLambertMaterial({
+      map: tex, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.5
+    });
+    const roof = new THREE.MeshLambertMaterial({ color: new THREE.Color(base).multiplyScalar(0.7) });
+    return [side, side, roof, roof, side, side];   // +x,-x,+y,-y,+z,-z
+  });
+}
+
+function _ppBuildCity() {
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const mats = _ppMakeBuildingMats();
+  for (let i = 0; i < PP_BUILDINGS; i++) {
+    const m = new THREE.Mesh(geo, mats[i % mats.length]);
+    _ppPlaceBuilding(m, -20 - Math.random() * PP_SPAN);
+    PP.scene.add(m);
+    PP.buildings.push(m);
+  }
+}
+
+function _ppPlaceBuilding(m, z) {
+  const corridor = Math.random() < 0.25;             // 25%는 비행 통로 안쪽에
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const x = corridor ? side * (4 + Math.random() * 8) : side * (13 + Math.random() * 34);
+  const w = 4 + Math.random() * 5;
+  const d = 4 + Math.random() * 5;
+  const h = corridor ? 5 + Math.random() * 12 : 7 + Math.random() * 24;
+  m.scale.set(w, h, d);
+  m.position.set(x, h / 2, z);
+}
+
+function _ppBuildPlane() {
+  // 종이 다트: 코끝 + 좌우 날개 + 아래 용골, 삼각형 3장
+  const nose = [0, 0, -2.3];
+  const mid  = [0, 0.05, 1.5];
+  const lTip = [-1.55, 0.42, 1.5];
+  const rTip = [ 1.55, 0.42, 1.5];
+  const keel = [0, -0.62, 1.35];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    ...nose, ...lTip, ...mid,     // 왼 날개
+    ...nose, ...mid,  ...rTip,    // 오른 날개
+    ...nose, ...keel, ...mid      // 아래 용골
+  ]), 3));
+  geo.computeVertexNormals();
+  const body = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    color: 0xfdf3e3, roughness: 0.9, metalness: 0,
+    side: THREE.DoubleSide, flatShading: true
+  }));
+  const crease = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo, 10),
+    new THREE.LineBasicMaterial({ color: 0xbfa88e })   // 접은 자국
+  );
+  PP.plane = new THREE.Group();
+  PP.plane.add(body);
+  PP.plane.add(crease);
+  PP.plane.position.set(0, PP.py, 0);
+  PP.scene.add(PP.plane);
+}
+
+function _ppBuildRings() {
+  const geo = new THREE.TorusGeometry(1.7, 0.16, 8, 28);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xffd27a, emissive: 0xffa030, emissiveIntensity: 0.85,
+    roughness: 0.4, metalness: 0.2
+  });
+  let z = -45;
+  for (let i = 0; i < PP_RINGS; i++) {
+    const m = new THREE.Mesh(geo, mat);
+    _ppPlaceRing(m, z);
+    z -= 30 + Math.random() * 14;
+    PP.scene.add(m);
+    PP.rings.push(m);
+  }
+}
+
+function _ppPlaceRing(m, z) {
+  let x = 0, y = 8;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    x = (Math.random() * 2 - 1) * 13;
+    y = 3.5 + Math.random() * 11;
+    if (!_ppInsideBuilding(x, y, z)) break;
+  }
+  m.position.set(x, y, z);
+  m.userData.passed = false;
+  m.visible = true;
+}
+
+function _ppInsideBuilding(x, y, z) {
+  for (const b of PP.buildings) {
+    if (Math.abs(b.position.z - z) > b.scale.z / 2 + 2.2) continue;
+    if (Math.abs(x - b.position.x) < b.scale.x / 2 + 2.2 && y < b.scale.y + 2.2) return true;
+  }
+  return false;
+}
+
+/* ── 조작 ── */
+
+function _ppPointer(cx, cy) {
+  if (!PP.container) return;
+  const r = PP.container.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const nx = Math.max(-1, Math.min(1, ((cx - r.left) / r.width) * 2 - 1));
+  const ny = Math.max(-1, Math.min(1, ((cy - r.top) / r.height) * 2 - 1));
+  PP.tx = nx * 15;
+  PP.ty = 9 - ny * 7;                   // 마우스를 올리면 상승
+}
+
+function _ppKey(e, down) {
+  if (!PP.rafId) return;                // 종이비행기 탭이 보일 때만
+  const k = e.key;
+  if (k === 'ArrowUp') PP.keys.up = down;
+  else if (k === 'ArrowDown') PP.keys.down = down;
+  else if (k === 'ArrowLeft') PP.keys.left = down;
+  else if (k === 'ArrowRight') PP.keys.right = down;
+  else if (k === ' ') PP.boost = down;
+  else return;
+  e.preventDefault();
+}
+
+/* ── 메인 루프 ── */
+
+function ppTick(now) {
+  PP.rafId = requestAnimationFrame(ppTick);
+  const dt = Math.min((now - PP.lastT) / 1000 || 0.016, 0.05);
+  PP.lastT = now;
+  PP.t += dt;
+
+  const spd = PP_SPEED * (PP.boost ? PP_BOOST_MULT : 1);
+
+  // 화살표 키 → 목표 지점 이동 (마우스 대신 쓸 수 있는 보조 조작)
+  const K = PP.keys;
+  if (K.left || K.right) PP.tx = Math.max(-15, Math.min(15, PP.tx + ((K.right ? 1 : 0) - (K.left ? 1 : 0)) * 30 * dt));
+  if (K.up || K.down)    PP.ty = Math.max(2,  Math.min(16, PP.ty + ((K.up ? 1 : 0)  - (K.down ? 1 : 0))  * 24 * dt));
+
+  // 비행기: 목표를 향해 부드럽게 + 충돌 넉백 감쇠
+  const prevX = PP.px, prevY = PP.py;
+  const ease = 1 - Math.pow(0.06, dt);
+  PP.px += (PP.tx - PP.px) * ease + PP.knockX * dt;
+  PP.py += (PP.ty - PP.py) * ease + PP.knockY * dt;
+  PP.knockX *= Math.pow(0.02, dt);
+  PP.knockY *= Math.pow(0.02, dt);
+  PP.px = Math.max(-17, Math.min(17, PP.px));
+  PP.py = Math.max(1.4, Math.min(17, PP.py));
+  const vx = (PP.px - prevX) / Math.max(dt, 0.001);
+  const vy = (PP.py - prevY) / Math.max(dt, 0.001);
+
+  // 기체 자세: 선회 방향으로 기울고(뱅크), 오르내릴 때 기수가 따라간다
+  const bob = Math.sin(PP.t * 2.1) * 0.06;            // 종이비행기 특유의 산들거림
+  PP.plane.position.set(PP.px, PP.py + bob, 0);
+  PP.plane.rotation.set(
+    Math.max(-0.6, Math.min(0.6, vy * 0.035)),        // pitch
+    0,
+    Math.max(-0.9, Math.min(0.9, -vx * 0.045))        // roll (bank)
+  );
+
+  // 도시와 링이 비행기 쪽으로 흘러온다 — 지나가면 저 멀리 앞으로 재활용
+  for (const b of PP.buildings) {
+    b.position.z += spd * dt;
+    if (b.position.z - b.scale.z / 2 > 20) _ppPlaceBuilding(b, b.position.z - PP_SPAN);
+  }
+  if (PP.groundTex) {
+    PP.groundTex.offset.y += (spd * dt) / (560 / 24);
+    if (PP.groundTex.offset.y > 1) PP.groundTex.offset.y -= 1;   // 부동소수점 오차 방지
+  }
+
+  for (const r of PP.rings) {
+    const prevZ = r.position.z;
+    r.position.z += spd * dt;
+    r.rotation.z += dt * 1.2;
+    if (!r.userData.passed && prevZ <= 0 && r.position.z > 0) {
+      r.userData.passed = true;
+      const dx = PP.px - r.position.x, dy = PP.py - r.position.y;
+      if (r.visible && Math.hypot(dx, dy) < 2.4) _ppCollectRing(r);
+    }
+    if (r.position.z > 18) _ppPlaceRing(r, _ppFarthestRingZ() - (28 + Math.random() * 16));
+  }
+
+  // 빌딩 충돌 — 실패 없음: 살짝 튕겨내고 화면만 잠깐 흔들린다
+  for (const b of PP.buildings) {
+    if (Math.abs(b.position.z) > b.scale.z / 2 + 1.4) continue;
+    const hw = b.scale.x / 2;
+    if (Math.abs(PP.px - b.position.x) < hw + 1.1 && PP.py < b.scale.y + 0.6) {
+      const dir = PP.px >= b.position.x ? 1 : -1;
+      PP.px = Math.max(-17, Math.min(17, b.position.x + dir * (hw + 1.6)));
+      PP.tx = Math.max(-15, Math.min(15, PP.px));
+      PP.knockX = dir * 10;
+      PP.knockY = 4;
+      PP.shake = 1;
+      PP.hitT = 1;
+    }
+  }
+  PP.shake = Math.max(0, PP.shake - dt * 2.4);
+  PP.hitT  = Math.max(0, PP.hitT - dt * 2.2);
+  if (PP.hitFlashEl) PP.hitFlashEl.style.opacity = PP.hitT * 0.85;
+
+  // 3인칭 추적 카메라: 비행기 뒤 위에서 부드럽게 따라간다
+  const cEase = 1 - Math.pow(0.03, dt);
+  PP.camera.position.x += (PP.px * 0.88 - PP.camera.position.x) * cEase;
+  PP.camera.position.y += (PP.py + 2.5 - PP.camera.position.y) * cEase;
+  PP.camera.position.z = 8;
+  const shk = PP.shake * PP.shake * 0.5;
+  if (shk > 0.002) {
+    PP.camera.position.x += (Math.random() - 0.5) * shk;
+    PP.camera.position.y += (Math.random() - 0.5) * shk;
+  }
+  PP.camera.lookAt(PP.px * 0.9, PP.py + 0.4, -22);
+
+  // 비행거리
+  PP.dist += spd * dt;
+  const df = Math.floor(PP.dist);
+  if (df !== PP.distShown) {
+    PP.distShown = df;
+    const d = document.getElementById('pp-dist');
+    if (d) d.textContent = df + 'm';
+  }
+
+  PP.renderer.render(PP.scene, PP.camera);
+}
+
+function _ppFarthestRingZ() {
+  let minZ = 0;
+  for (const r of PP.rings) if (r.position.z < minZ) minZ = r.position.z;
+  return minZ;
+}
+
+/* ── 득점 ── */
+
+function _ppCollectRing(r) {
+  r.visible = false;
+  PP.score += 10;
+  PP.ringCount++;
+
+  const pos = _ppToScreen(r.position);
+  if (pos) {
+    if (particles) particles.burst(pos.clientX, pos.clientY);
+    _ppPopup('+10', pos.x, pos.y, '#ffd27a', 22);
+  }
+  // 10개 단위 축하
+  if (PP.ringCount % 10 === 0) {
+    const rect = PP.container.getBoundingClientRect();
+    if (particles && rect.width) particles.burst(rect.left + rect.width / 2, rect.top + rect.height * 0.35);
+    showToast(`링 ${PP.ringCount}개 통과! 노을 하늘의 멋진 파일럿이에요`, '🛩️');
+    if (pos) _ppPopup(`${PP.ringCount}개째! 🌟`, pos.x, pos.y - 30, '#ffe9b0', 17);
+  }
+  _ppUpdateHUD();
+}
+
+function _ppToScreen(v3) {
+  const rect = PP.container.getBoundingClientRect();
+  if (!rect.width) return null;
+  const v = v3.clone().project(PP.camera);
+  if (v.z > 1) return null;
+  const x = (v.x * 0.5 + 0.5) * rect.width;
+  const y = (1 - (v.y * 0.5 + 0.5)) * rect.height;
+  return { x, y, clientX: rect.left + x, clientY: rect.top + y };
+}
+
+function _ppPopup(text, x, y, color, size) {
+  if (!PP.container) return;
+  const el = document.createElement('div');
+  el.className = 'pp-popup';
+  el.textContent = text;
+  el.style.left = x + 'px';
+  el.style.top = y + 'px';
+  el.style.color = color;
+  el.style.fontSize = size + 'px';
+  PP.container.appendChild(el);
+  setTimeout(() => el.remove(), 1000);
+}
+
+function _ppUpdateHUD() {
+  const s = document.getElementById('pp-score');
+  const r = document.getElementById('pp-rings');
+  const d = document.getElementById('pp-dist');
+  if (s) s.textContent = PP.score;
+  if (r) r.textContent = PP.ringCount;
+  if (d) d.textContent = Math.floor(PP.dist) + 'm';
+}
