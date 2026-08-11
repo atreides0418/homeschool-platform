@@ -289,7 +289,7 @@ function createDayCell(year, month, day, otherMonth, allSchedules, isToday) {
     if (items.length > 0) {
       const eventsRow = document.createElement('div');
       eventsRow.className = 'cal-day-events';
-      items.forEach(item => {
+      items.slice(0, 2).forEach(item => {
         const chip = document.createElement('div');
         chip.className = 'cal-event-chip' + (item.done ? ' cal-event-done' : '');
         chip.style.cssText = `background:${item.color}22;border-left:2px solid ${item.color};color:${item.color}`;
@@ -299,6 +299,12 @@ function createDayCell(year, month, day, otherMonth, allSchedules, isToday) {
         eventsRow.appendChild(chip);
       });
       cell.appendChild(eventsRow);
+      if (items.length > 2) {
+        const more = document.createElement('div');
+        more.className = 'cal-event-more';
+        more.textContent = `+${items.length - 2}`;
+        cell.appendChild(more);
+      }
     }
     cell.addEventListener('click', () => {
       if (calDrag.suppressClick) { calDrag.suppressClick = false; return; }

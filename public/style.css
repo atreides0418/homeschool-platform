@@ -383,40 +383,40 @@ a { text-decoration: none; }
 
 .cal-day-events {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
+  gap: 2px;
   width: 100%;
   max-width: 100%;
   margin-top: 2px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 3px;
-  scrollbar-width: thin;
 }
-.cal-day-events::-webkit-scrollbar { height: 4px; }
-.cal-day-events::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-.cal-day-events::-webkit-scrollbar-track { background: transparent; }
 
 .cal-event-chip {
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.3;
-  padding: 2px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
   white-space: normal;
   overflow-wrap: break-word;
   word-break: break-word;
-  flex: 0 0 auto;
-  width: 62px;
+  width: 100%;
+  max-width: 100%;
   font-weight: 600;
+  margin-top: 2px;
   cursor: grab;
-  touch-action: pan-x;
+  touch-action: none;
   -webkit-touch-callout: none;
   user-select: none;
 }
 .cal-event-done {
   opacity: .55;
   text-decoration: line-through;
+}
+.cal-event-more {
+  font-size: 9px;
+  color: var(--text-light);
+  margin-top: 1px;
+  padding-left: 2px;
 }
 
 .cal-chip-dragging-source { opacity: .3; }
