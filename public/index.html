@@ -728,8 +728,10 @@
     <div class="memo-panel-header">
       <span class="memo-panel-title">✦ 나의 메모</span>
       <span class="memo-char-count" id="memo-char-count">0자</span>
+      <button class="memo-panel-add" onclick="addNewMemo()" title="새 메모">+</button>
       <button class="memo-panel-close" onclick="toggleMemoPanel()">✕</button>
     </div>
+    <div class="memo-tabs" id="memo-tabs"></div>
     <textarea id="memo-textarea" class="memo-textarea"
       placeholder="✏️ 여기에 자유롭게 적어보세요&#10;생각, 아이디어, 중요한 것들...&#10;&#10;앱을 꺼도 내용이 유지돼요 🌿"
       oninput="saveMemo(this.value)"></textarea>

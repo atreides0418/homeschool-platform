@@ -267,6 +267,7 @@ function createDayCell(year, month, day, otherMonth, allSchedules, isToday) {
   if (dow === 6) cell.classList.add('saturday');
 
   const key = dateKey(year, month, day);
+  cell.dataset.key = key;
   const holidayName = HOLIDAYS_KR[key];
   if (holidayName) cell.classList.add('holiday');
 
@@ -285,23 +286,196 @@ function createDayCell(year, month, day, otherMonth, allSchedules, isToday) {
 
   if (!otherMonth) {
     const items = (allSchedules && allSchedules[key]) || [];
-    items.slice(0, 2).forEach(item => {
-      const chip = document.createElement('div');
-      chip.className = 'cal-event-chip' + (item.done ? ' cal-event-done' : '');
-      chip.style.cssText = `background:${item.color}22;border-left:2px solid ${item.color};color:${item.color}`;
-      chip.textContent = (item.done ? '✓ ' : '') + item.subject;
-      cell.appendChild(chip);
-    });
-    if (items.length > 2) {
-      const more = document.createElement('div');
-      more.className = 'cal-event-more';
-      more.textContent = `+${items.length - 2}`;
-      cell.appendChild(more);
+    if (items.length > 0) {
+      const eventsRow = document.createElement('div');
+      eventsRow.className = 'cal-day-events';
+      items.forEach(item => {
+        const chip = document.createElement('div');
+        chip.className = 'cal-event-chip' + (item.done ? ' cal-event-done' : '');
+        chip.style.cssText = `background:${item.color}22;border-left:2px solid ${item.color};color:${item.color}`;
+        chip.textContent = (item.done ? '✓ ' : '') + item.subject;
+        chip.title = item.subject;
+        chip.addEventListener('pointerdown', (e) => startScheduleDrag(e, chip, item.id, key));
+        eventsRow.appendChild(chip);
+      });
+      cell.appendChild(eventsRow);
     }
-    cell.addEventListener('click', () => openDatePopup(year, month, day, key));
+    cell.addEventListener('click', () => {
+      if (calDrag.suppressClick) { calDrag.suppressClick = false; return; }
+      openDatePopup(year, month, day, key);
+    });
   }
 
   return cell;
+}
+
+/* ============================================================
+   CALENDAR — DRAG SCHEDULE TO ANOTHER DAY
+   ============================================================ */
+function moveScheduleBetweenDates(fromKey, toKey, itemId) {
+  if (!fromKey || !toKey || fromKey === toKey) return;
+  const today = todayStr();
+  const isFromToday = fromKey === today;
+  const isToToday = toKey === today;
+
+  const all = getAllSchedules();
+
+  let moved;
+  if (isFromToday) {
+    moved = state.schedule.items.find(i => i.id === itemId);
+    if (!moved) return;
+    moved = { ...moved, carriedOver: undefined };
+    state.schedule.items = state.schedule.items.filter(i => i.id !== itemId);
+    state.checklist.items = state.checklist.items.filter(i => i.scheduleId !== itemId);
+  } else {
+    const list = all[fromKey] || [];
+    moved = list.find(i => i.id === itemId);
+    if (!moved) return;
+    moved = { ...moved, carriedOver: undefined };
+    all[fromKey] = list.filter(i => i.id !== itemId);
+    if (all[fromKey].length === 0) delete all[fromKey];
+  }
+
+  if (isToToday) {
+    state.schedule.items.push(moved);
+    state.checklist.items.push({
+      id: genId(),
+      text: moved.desc ? `${moved.subject} — ${moved.desc}` : moved.subject,
+      done: moved.done,
+      fromSchedule: true,
+      scheduleId: moved.id
+    });
+  } else {
+    if (!all[toKey]) all[toKey] = [];
+    all[toKey].push(moved);
+  }
+
+  saveAllSchedules(all);
+  if (isFromToday || isToToday) saveStorage();
+
+  renderCalendar();
+  renderScheduleItems();
+  renderChecklistItems();
+  updateChecklistProgress();
+  const popupOverlay = document.getElementById('date-popup-overlay');
+  if (popupOverlay && popupOverlay.style.display !== 'none') renderDatePopupItems();
+  showToast('일정을 다른 날로 옮겼어요', '📅');
+}
+
+const calDrag = {
+  active: false,
+  itemId: null,
+  fromKey: null,
+  chip: null,
+  ghost: null,
+  timer: null,
+  startX: 0,
+  startY: 0,
+  hoverCell: null,
+  suppressClick: false
+};
+
+function startScheduleDrag(e, chip, itemId, fromKey) {
+  if (e.button !== undefined && e.button !== 0) return;
+  calDrag.itemId = itemId;
+  calDrag.fromKey = fromKey;
+  calDrag.chip = chip;
+  calDrag.startX = e.clientX;
+  calDrag.startY = e.clientY;
+  calDrag.active = false;
+
+  const onMove = (ev) => {
+    if (!calDrag.active) {
+      const dx = Math.abs(ev.clientX - calDrag.startX);
+      const dy = Math.abs(ev.clientY - calDrag.startY);
+      if (dx > 8 || dy > 8) cleanup();
+      return;
+    }
+    ev.preventDefault();
+    moveGhost(ev.clientX, ev.clientY);
+    updateDropHover(ev.clientX, ev.clientY);
+  };
+
+  const onUp = (ev) => {
+    const wasActive = calDrag.active;
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onCancel);
+    clearTimeout(calDrag.timer);
+    if (wasActive) finishDrag(ev.clientX, ev.clientY);
+    resetDragVisuals();
+  };
+
+  const onCancel = () => cleanup();
+
+  function cleanup() {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    document.removeEventListener('pointercancel', onCancel);
+    clearTimeout(calDrag.timer);
+    resetDragVisuals();
+  }
+
+  calDrag.timer = setTimeout(() => {
+    calDrag.active = true;
+    calDrag.suppressClick = true;
+    activateGhost(chip, e.clientX, e.clientY);
+  }, 420);
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+  document.addEventListener('pointercancel', onCancel);
+}
+
+function activateGhost(chip, x, y) {
+  chip.classList.add('cal-chip-dragging-source');
+  const ghost = chip.cloneNode(true);
+  ghost.classList.add('cal-chip-ghost');
+  const rect = chip.getBoundingClientRect();
+  ghost.style.position = 'fixed';
+  ghost.style.left = '0';
+  ghost.style.top = '0';
+  ghost.style.width = rect.width + 'px';
+  ghost.style.pointerEvents = 'none';
+  ghost.style.zIndex = '9999';
+  document.body.appendChild(ghost);
+  calDrag.ghost = ghost;
+  moveGhost(x, y);
+  if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_) {} }
+}
+
+function moveGhost(x, y) {
+  if (!calDrag.ghost) return;
+  calDrag.ghost.style.transform = `translate(${x + 10}px, ${y + 10}px) rotate(-3deg)`;
+}
+
+function updateDropHover(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const cell = el ? el.closest('.cal-day') : null;
+  const validCell = cell && cell.dataset.key ? cell : null;
+  if (calDrag.hoverCell && calDrag.hoverCell !== validCell) {
+    calDrag.hoverCell.classList.remove('cal-day-drop-hover');
+  }
+  if (validCell) validCell.classList.add('cal-day-drop-hover');
+  calDrag.hoverCell = validCell;
+}
+
+function finishDrag(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const cell = el ? el.closest('.cal-day') : null;
+  const toKey = cell ? cell.dataset.key : null;
+  if (toKey) moveScheduleBetweenDates(calDrag.fromKey, toKey, calDrag.itemId);
+}
+
+function resetDragVisuals() {
+  if (calDrag.chip) calDrag.chip.classList.remove('cal-chip-dragging-source');
+  if (calDrag.ghost) { calDrag.ghost.remove(); calDrag.ghost = null; }
+  if (calDrag.hoverCell) { calDrag.hoverCell.classList.remove('cal-day-drop-hover'); calDrag.hoverCell = null; }
+  calDrag.active = false;
+  calDrag.chip = null;
+  calDrag.itemId = null;
+  calDrag.fromKey = null;
+  setTimeout(() => { calDrag.suppressClick = false; }, 50);
 }
 
 /* ============================================================
@@ -2227,8 +2401,9 @@ function toggleChecklistItem(id) {
   item.done = !item.done;
 
   // 일정에서 온 항목이면 일정 완료 상태도 함께 동기화
+  let sched = null;
   if (item.scheduleId) {
-    const sched = state.schedule.items.find(s => s.id === item.scheduleId);
+    sched = state.schedule.items.find(s => s.id === item.scheduleId);
     if (sched) sched.done = item.done;
   }
 
@@ -2251,6 +2426,19 @@ function toggleChecklistItem(id) {
   saveStorage();
   renderChecklistItems();
   updateChecklistProgress();
+  renderCalendar();
+
+  // 전날 이월된(못한) 일정은 완료 체크하면 오늘 할 일 목록에서 자동으로 사라짐
+  if (item.done && sched && sched.carriedOver) {
+    const clearEl = document.querySelector(`[data-id="${id}"]`);
+    if (clearEl) clearEl.classList.add('auto-clearing');
+    setTimeout(() => {
+      state.checklist.items = state.checklist.items.filter(i => i.id !== id);
+      saveStorage();
+      renderChecklistItems();
+      updateChecklistProgress();
+    }, 550);
+  }
 
   // 100% 달성 시 한 번 더 축하
   const total = state.checklist.items.length;
@@ -3167,7 +3355,51 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ============================================================
    MEMO PANEL
    ============================================================ */
-const MEMO_STORAGE_KEY = 'hs_notepad_memo';
+const MEMO_STORAGE_KEY = 'hs_notepad_memo'; // legacy single-memo key, kept for migration
+const MEMO_LIST_KEY = 'hs_notepad_memos';
+let currentMemoId = null;
+
+function loadMemoList() {
+  let list;
+  try { list = JSON.parse(localStorage.getItem(MEMO_LIST_KEY) || 'null'); } catch (e) { list = null; }
+  if (!Array.isArray(list) || list.length === 0) {
+    const legacy = localStorage.getItem(MEMO_STORAGE_KEY) || '';
+    list = [{ id: genId(), content: legacy, updatedAt: Date.now() }];
+    saveMemoList(list);
+  }
+  return list;
+}
+
+function saveMemoList(list) {
+  localStorage.setItem(MEMO_LIST_KEY, JSON.stringify(list));
+}
+
+function memoTabLabel(memo, index) {
+  const firstLine = (memo.content || '').split('\n')[0].trim();
+  if (!firstLine) return `메모 ${index + 1}`;
+  return firstLine.length > 8 ? firstLine.slice(0, 8) + '…' : firstLine;
+}
+
+function renderMemoTabs() {
+  const wrap = document.getElementById('memo-tabs');
+  if (!wrap) return;
+  const list = loadMemoList();
+  wrap.innerHTML = list.map((m, i) => `
+    <div class="memo-tab ${m.id === currentMemoId ? 'active' : ''}" onclick="switchMemo('${m.id}')">
+      <span class="memo-tab-label">${escHtml(memoTabLabel(m, i))}</span>
+      ${list.length > 1 ? `<button class="memo-tab-close" onclick="event.stopPropagation();deleteMemo('${m.id}')">✕</button>` : ''}
+    </div>
+  `).join('');
+}
+
+function loadMemoIntoTextarea() {
+  const list = loadMemoList();
+  const memo = list.find(m => m.id === currentMemoId) || list[0];
+  currentMemoId = memo.id;
+  const textarea = document.getElementById('memo-textarea');
+  textarea.value = memo.content || '';
+  updateMemoCharCount(textarea.value.length);
+}
 
 function initMemo() {
   const btn = document.getElementById('memo-star-btn');
@@ -3175,9 +3407,10 @@ function initMemo() {
   const cloverBtn = document.getElementById('clover-btn');
   if (cloverBtn) cloverBtn.style.display = 'flex';
 
-  const textarea = document.getElementById('memo-textarea');
-  textarea.value = localStorage.getItem(MEMO_STORAGE_KEY) || '';
-  updateMemoCharCount(textarea.value.length);
+  const list = loadMemoList();
+  currentMemoId = list[0].id;
+  renderMemoTabs();
+  loadMemoIntoTextarea();
 }
 
 function toggleMemoPanel() {
@@ -3191,17 +3424,56 @@ function toggleMemoPanel() {
   } else {
     panel.style.display = 'flex';
     btn.classList.add('open');
+    renderMemoTabs();
+    loadMemoIntoTextarea();
     const textarea = document.getElementById('memo-textarea');
-    textarea.value = localStorage.getItem(MEMO_STORAGE_KEY) || '';
-    updateMemoCharCount(textarea.value.length);
     textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }
 }
 
 function saveMemo(value) {
-  localStorage.setItem(MEMO_STORAGE_KEY, value);
+  const list = loadMemoList();
+  const memo = list.find(m => m.id === currentMemoId);
+  if (memo) {
+    memo.content = value;
+    memo.updatedAt = Date.now();
+    saveMemoList(list);
+  }
   updateMemoCharCount(value.length);
+  renderMemoTabs();
+}
+
+function switchMemo(id) {
+  if (id === currentMemoId) return;
+  currentMemoId = id;
+  loadMemoIntoTextarea();
+  renderMemoTabs();
+  document.getElementById('memo-textarea').focus();
+}
+
+function addNewMemo() {
+  // 현재 메모는 이미 매 입력마다 자동 저장되어 있으므로 그대로 두고 새 메모만 추가
+  const list = loadMemoList();
+  const newMemo = { id: genId(), content: '', updatedAt: Date.now() };
+  list.push(newMemo);
+  saveMemoList(list);
+  currentMemoId = newMemo.id;
+  renderMemoTabs();
+  loadMemoIntoTextarea();
+  const textarea = document.getElementById('memo-textarea');
+  textarea.focus();
+  showToast('새 메모를 시작해요', '📝');
+}
+
+function deleteMemo(id) {
+  let list = loadMemoList();
+  if (list.length <= 1) return;
+  list = list.filter(m => m.id !== id);
+  saveMemoList(list);
+  if (currentMemoId === id) currentMemoId = list[0].id;
+  renderMemoTabs();
+  loadMemoIntoTextarea();
 }
 
 function updateMemoCharCount(len) {
