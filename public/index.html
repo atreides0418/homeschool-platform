@@ -33,6 +33,9 @@
         <li class="nav-item" data-page="schedule">
           <span class="nav-icon">🗓️</span><span class="nav-label">오늘 일정</span>
         </li>
+        <li class="nav-item" data-page="priority">
+          <span class="nav-icon">🎯</span><span class="nav-label">우선순위</span>
+        </li>
         <li class="nav-item" data-page="study">
           <span class="nav-icon">📖</span><span class="nav-label">학습하기</span>
         </li>
@@ -350,6 +353,41 @@
             </div>
           </div>
         </div>
+      </section>
+
+      <!-- ===== PRIORITY MATRIX ===== -->
+      <section id="page-priority" class="page">
+        <div class="page-header">
+          <h1 class="page-title">🎯 우선순위 정하기</h1>
+          <p class="page-subtitle">할 일을 <b>중요한가?</b> × <b>급한가?</b>로 나눠서 무엇부터 할지 정해봐요</p>
+        </div>
+
+        <div class="card pm-form">
+          <input type="text" id="pm-input" class="form-input" placeholder="할 일을 적어주세요 (예: 수학 숙제, 책 반납...)"
+                 onkeypress="if(event.key==='Enter') addPriorityItem()">
+          <div class="pm-questions">
+            <div class="pm-q">
+              <span class="pm-q-label">중요한가?</span>
+              <button class="pm-toggle" data-q="important" data-v="1" onclick="setPmAnswer('important',1)">중요해</button>
+              <button class="pm-toggle" data-q="important" data-v="0" onclick="setPmAnswer('important',0)">안 중요해</button>
+            </div>
+            <div class="pm-q">
+              <span class="pm-q-label">급한가?</span>
+              <button class="pm-toggle" data-q="urgent" data-v="1" onclick="setPmAnswer('urgent',1)">급해</button>
+              <button class="pm-toggle" data-q="urgent" data-v="0" onclick="setPmAnswer('urgent',0)">안 급해</button>
+            </div>
+          </div>
+          <button class="btn-primary pm-add-btn" onclick="addPriorityItem()">+ 칸에 넣기</button>
+        </div>
+
+        <div class="pm-axis-top"><span>급해</span><span>안 급해</span></div>
+        <div class="pm-grid">
+          <div class="pm-quad" data-quad="q1"></div>
+          <div class="pm-quad" data-quad="q2"></div>
+          <div class="pm-quad" data-quad="q3"></div>
+          <div class="pm-quad" data-quad="q4"></div>
+        </div>
+        <p class="pm-hint">💡 할 일을 끌어서 다른 칸으로 옮길 수 있어요 · 📋 버튼으로 오늘 일정에 바로 추가해요</p>
       </section>
 
       <!-- ===== STUDY (AI tutor) ===== -->

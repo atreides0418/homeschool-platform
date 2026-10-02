@@ -141,6 +141,7 @@ function navigate(page) {
 
   if (page === 'home') { renderHome(); updateHomeStats(); }
   if (page === 'schedule') renderScheduleDate();
+  if (page === 'priority') renderPriorityMatrix();
   if (page === 'study') renderStudyPage();
   if (page === 'video') renderVsChips();
   if (page === 'games') {
@@ -6457,4 +6458,135 @@ function _ppUpdateHUD() {
   if (s) s.textContent = PP.score;
   if (r) r.textContent = PP.ringCount;
   if (d) d.textContent = Math.floor(PP.dist) + 'm';
+}
+
+/* ============================================================
+   PRIORITY MATRIX (중요한가? × 급한가?)
+   ============================================================ */
+const PM_KEY = 'hs_priority';
+const PM_QUADS = {
+  q1: { icon: '🔥', title: '지금 바로 하기',   sub: '중요해 · 급해' },
+  q2: { icon: '📅', title: '계획 세워서 하기', sub: '중요해 · 안 급해' },
+  q3: { icon: '⚡', title: '짧게 끝내기',      sub: '안 중요해 · 급해' },
+  q4: { icon: '🍃', title: '나중에 / 줄이기',  sub: '안 중요해 · 안 급해' }
+};
+const pmAnswer = { important: null, urgent: null };
+let pmDragId = null;
+
+function loadPriorityItems() {
+  try { return JSON.parse(localStorage.getItem(PM_KEY)) || []; } catch (_) { return []; }
+}
+function savePriorityItems(items) {
+  try { localStorage.setItem(PM_KEY, JSON.stringify(items)); } catch (_) {}
+}
+
+function setPmAnswer(q, v) {
+  pmAnswer[q] = v;
+  document.querySelectorAll(`.pm-toggle[data-q="${q}"]`).forEach(b => {
+    b.classList.toggle('active', Number(b.dataset.v) === v);
+  });
+}
+
+function pmQuadOf(important, urgent) {
+  if (important) return urgent ? 'q1' : 'q2';
+  return urgent ? 'q3' : 'q4';
+}
+
+function addPriorityItem() {
+  const input = document.getElementById('pm-input');
+  const text = input.value.trim();
+  if (!text) { input.focus(); return; }
+  if (pmAnswer.important === null || pmAnswer.urgent === null) {
+    showToast('중요한지, 급한지 둘 다 골라주세요', '🤔');
+    return;
+  }
+  const quad = pmQuadOf(pmAnswer.important, pmAnswer.urgent);
+  const items = loadPriorityItems();
+  items.push({ id: genId(), text, quad, done: false });
+  savePriorityItems(items);
+
+  input.value = '';
+  setPmAnswer('important', null);
+  setPmAnswer('urgent', null);
+  input.focus();
+  renderPriorityMatrix();
+  showToast(`「${PM_QUADS[quad].title}」 칸에 넣었어요`, PM_QUADS[quad].icon);
+}
+
+function renderPriorityMatrix() {
+  const items = loadPriorityItems();
+  document.querySelectorAll('.pm-quad').forEach(box => {
+    const quad = box.dataset.quad;
+    const meta = PM_QUADS[quad];
+    const list = items.filter(i => i.quad === quad)
+      .sort((a, b) => Number(a.done) - Number(b.done));
+    box.innerHTML = `
+      <div class="pm-quad-head">
+        <span class="pm-quad-icon">${meta.icon}</span>
+        <div><div class="pm-quad-title">${meta.title}</div><div class="pm-quad-sub">${meta.sub}</div></div>
+        <span class="pm-quad-count">${list.filter(i => !i.done).length}</span>
+      </div>
+      <ul class="pm-list">
+        ${list.length ? list.map(i => `
+          <li class="pm-item${i.done ? ' done' : ''}" draggable="true" data-id="${i.id}">
+            <button class="pm-check" onclick="togglePriorityItem('${i.id}')" title="완료">${i.done ? '✓' : ''}</button>
+            <span class="pm-text">${escHtml(i.text)}</span>
+            ${i.done ? '' : `<button class="pm-icon-btn" onclick="priorityToSchedule('${i.id}')" title="오늘 일정에 추가">📋</button>`}
+            <button class="pm-icon-btn" onclick="removePriorityItem('${i.id}')" title="삭제">✕</button>
+          </li>`).join('') : '<li class="pm-empty">비어 있어요</li>'}
+      </ul>`;
+  });
+  setupPmDrag();
+}
+
+function setupPmDrag() {
+  document.querySelectorAll('.pm-item').forEach(el => {
+    el.addEventListener('dragstart', e => {
+      pmDragId = el.dataset.id;
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    el.addEventListener('dragend', () => { pmDragId = null; el.classList.remove('dragging'); });
+  });
+  document.querySelectorAll('.pm-quad').forEach(box => {
+    if (box.dataset.dndBound) return;
+    box.dataset.dndBound = '1';
+    box.addEventListener('dragover', e => { if (pmDragId) { e.preventDefault(); box.classList.add('drag-over'); } });
+    box.addEventListener('dragleave', e => { if (!box.contains(e.relatedTarget)) box.classList.remove('drag-over'); });
+    box.addEventListener('drop', e => {
+      e.preventDefault();
+      box.classList.remove('drag-over');
+      if (!pmDragId) return;
+      const items = loadPriorityItems();
+      const item = items.find(i => i.id === pmDragId);
+      if (item && item.quad !== box.dataset.quad) {
+        item.quad = box.dataset.quad;
+        savePriorityItems(items);
+        renderPriorityMatrix();
+      }
+    });
+  });
+}
+
+function togglePriorityItem(id) {
+  const items = loadPriorityItems();
+  const item = items.find(i => i.id === id);
+  if (!item) return;
+  item.done = !item.done;
+  savePriorityItems(items);
+  renderPriorityMatrix();
+}
+
+function removePriorityItem(id) {
+  savePriorityItems(loadPriorityItems().filter(i => i.id !== id));
+  renderPriorityMatrix();
+}
+
+// 우선순위 항목을 오늘 일정(+체크리스트)에 추가
+function priorityToSchedule(id) {
+  const item = loadPriorityItems().find(i => i.id === id);
+  if (!item) return;
+  document.getElementById('subject-input').value = item.text;
+  document.getElementById('desc-input').value = '';
+  addScheduleItem();
 }
