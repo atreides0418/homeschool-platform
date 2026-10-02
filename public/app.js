@@ -2434,16 +2434,11 @@ function toggleChecklistItem(id) {
   updateChecklistProgress();
   renderCalendar();
 
-  // 전날 이월된(못한) 일정은 완료 체크하면 오늘 할 일 목록에서 자동으로 사라짐
+  // 전날 이월된(못한) 일정은 완료 체크하면 체크리스트 + 일정 자체가 모두 사라짐
   if (item.done && sched && sched.carriedOver) {
     const clearEl = document.querySelector(`[data-id="${id}"]`);
     if (clearEl) clearEl.classList.add('auto-clearing');
-    setTimeout(() => {
-      state.checklist.items = state.checklist.items.filter(i => i.id !== id);
-      saveStorage();
-      renderChecklistItems();
-      updateChecklistProgress();
-    }, 550);
+    setTimeout(() => removeCarriedOverSchedule(sched.id), 550);
   }
 
   // 100% 달성 시 한 번 더 축하
@@ -2455,6 +2450,18 @@ function toggleChecklistItem(id) {
       showToast('오늘 할 일 전부 완료! 정말 대단해요', '🎉');
     }, 250);
   }
+}
+
+// 이월된 일정 완료 시: 일정과 연결된 체크리스트 항목을 함께 삭제 (완료 포인트는 유지)
+function removeCarriedOverSchedule(scheduleId) {
+  state.schedule.items = state.schedule.items.filter(s => s.id !== scheduleId);
+  state.checklist.items = state.checklist.items.filter(c => c.scheduleId !== scheduleId);
+  saveStorage();
+  renderScheduleItems();
+  renderChecklistItems();
+  updateChecklistProgress();
+  renderCalendar();
+  if (typeof renderDatePopupItems === 'function' && currentPopupDate) renderDatePopupItems();
 }
 
 function removeChecklistItem(id) {
@@ -2919,6 +2926,12 @@ function toggleScheduleItemDone(e, id) {
 
   renderDatePopupItems();
   renderCalendar();
+
+  // 이월된(못한) 일정은 완료 체크하면 일정 자체가 사라짐
+  if (isToday && willBeDone) {
+    const sched = state.schedule.items.find(i => i.id === id);
+    if (sched && sched.carriedOver) setTimeout(() => removeCarriedOverSchedule(id), 550);
+  }
 }
 
 function addToDatePopup() {
