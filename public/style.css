@@ -4350,3 +4350,29 @@ body.moonlit-theme .checklist-item.done { background: rgba(8,14,32,0.35); }
   .pm-grid { grid-template-columns: 1fr; }
   .pm-axis-top { display: none; }
 }
+
+/* ============================================================
+   CLOUD SYNC
+   ============================================================ */
+.sync-status-btn {
+  width: 100%; padding: 7px 10px;
+  border: 1px dashed var(--border); border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-light); font-size: 12.5px; text-align: left;
+}
+.sync-status-btn:hover { background: var(--bg-hover); }
+.sync-status-btn.ok  { border-style: solid; color: #4E8F4E; }
+.sync-status-btn.err { border-style: solid; color: #D45C5C; }
+.sync-btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.sync-btn {
+  padding: 8px 14px; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border); background: var(--bg-body);
+  color: var(--text-mid); font-size: 13.5px;
+}
+.sync-btn:hover { border-color: var(--primary-light); }
+.sync-btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+body.sunset-theme .sync-status-btn:not(.ok):not(.err)  { color: rgba(240,175,90,0.55); border-color: rgba(200,110,30,0.3); }
+body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222,0.55); border-color: rgba(85,115,185,0.3); }
+@media (max-width: 768px) {
+  .sync-status-btn { font-size: 0; text-align: center; }
+  .sync-status-btn::before { content: '☁️'; font-size: 16px; }
+}

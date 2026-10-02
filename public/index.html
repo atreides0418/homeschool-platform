@@ -61,6 +61,7 @@
             <div class="sl-bar"><div class="sl-bar-fill" id="sl-bar-fill" style="width:0%"></div></div>
           </div>
         </div>
+        <button class="sync-status-btn" id="sync-status-btn" onclick="showSettingsModal()" title="기기 동기화">☁️ 로그인하고 동기화</button>
         <button class="sidebar-settings-btn" onclick="showSettingsModal()" title="설정">⚙️ <span>설정</span></button>
       </div>
     </nav>
@@ -846,6 +847,20 @@
       <div class="settings-divider"></div>
 
       <div class="settings-section">
+        <div class="settings-section-label">☁️ 기기 동기화</div>
+        <p class="modal-desc" id="sync-account" style="margin-bottom:10px"></p>
+        <div class="sync-btn-row">
+          <button class="sync-btn primary" id="sync-login-btn" onclick="syncLogin()">구글로 로그인</button>
+          <span id="sync-logged-in-btns" style="display:none">
+            <button class="sync-btn" onclick="syncNow()">지금 동기화</button>
+            <button class="sync-btn" onclick="syncLogout()">로그아웃</button>
+          </span>
+        </div>
+        <div class="sync-btn-row" style="margin-bottom:16px">
+          <button class="sync-btn" onclick="exportAppData()">📦 백업 파일 저장</button>
+          <button class="sync-btn" onclick="document.getElementById('sync-import-input').click()">📂 백업 불러오기</button>
+          <input type="file" id="sync-import-input" accept="application/json,.json" style="display:none" onchange="importAppData(this)">
+        </div>
         <div class="settings-section-label">🔑 OpenAI API 키</div>
         <p class="modal-desc" style="margin-bottom:10px">AI 선생님·피드백 기능에 사용돼요.<br>키는 이 브라우저에만 저장되며 외부로 전송되지 않아요.</p>
         <input type="password" id="api-key-input" class="form-input" placeholder="sk-proj-..." style="margin-bottom:12px">
@@ -864,6 +879,10 @@
   <div id="toast-root"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="sync.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
