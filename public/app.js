@@ -213,6 +213,7 @@ function dateKey(year, month, day) {
 }
 
 function renderCalendar() {
+  if (typeof ttDayMode !== 'undefined' && ttDayMode) { renderTimetable(); return; }
   const { year, month } = state.calendar;
   const today = new Date();
   const allSchedules = getAllSchedules();
@@ -6613,6 +6614,7 @@ const TT_DEFAULT = [
 ];
 let ttDate = null;
 let ttEditingId = null;
+let ttDayMode = false;
 
 function ttLoadAll() {
   try { return JSON.parse(localStorage.getItem(TT_KEY)) || {}; } catch (_) { return {}; }
@@ -6647,22 +6649,27 @@ function ttItems() {
   return items.slice().sort((a, b) => ttSortKey(a.start) - ttSortKey(b.start));
 }
 
-function openTimetable() {
-  if (!currentPopupDate) return;
-  ttDate = currentPopupDate;
-  ttEditingId = null;
-  const [, m, d] = ttDate.split('-').map(Number);
-  document.getElementById('tt-title').textContent = `🕐 ${m}월 ${d}일 하루 시간표`;
-  ttResetForm();
-  renderTimetable();
-  document.getElementById('tt-overlay').style.display = 'flex';
+function toggleDayView() {
+  ttDayMode = !ttDayMode;
+  document.getElementById('cal-month-view').style.display = ttDayMode ? 'none' : '';
+  document.getElementById('cal-day-view').style.display = ttDayMode ? '' : 'none';
+  document.getElementById('tt-toggle-btn').textContent = ttDayMode ? '📅 월간 달력' : '🕐 하루 시간표';
+  if (ttDayMode) {
+    ttDate = todayStr();
+    ttResetForm();
+    renderTimetable();
+  } else {
+    ttDate = null;
+    renderCalendar();
+  }
 }
 
-function closeTimetable(e) {
-  if (e && e.target.id !== 'tt-overlay') return;
-  document.getElementById('tt-overlay').style.display = 'none';
-  ttDate = null;
-  ttEditingId = null;
+function ttShiftDay(delta) {
+  const [y, m, d] = ttDate.split('-').map(Number);
+  const nd = new Date(y, m - 1, d + delta);
+  ttDate = `${nd.getFullYear()}-${nd.getMonth() + 1}-${nd.getDate()}`;
+  ttResetForm();
+  renderTimetable();
 }
 
 function ttResetForm() {
@@ -6670,11 +6677,19 @@ function ttResetForm() {
   document.getElementById('tt-start').value = '';
   document.getElementById('tt-end').value = '';
   document.getElementById('tt-text').value = '';
-  const btn = document.querySelector('#tt-overlay .tt-add .btn-primary');
+  const btn = document.getElementById('tt-add-btn');
   if (btn) btn.textContent = '+ 시간표에 추가';
 }
 
 function renderTimetable() {
+  const [ty, tm, td] = ttDate.split('-').map(Number);
+  const dowLabels = ['일', '월', '화', '수', '목', '금', '토'];
+  const holiday = HOLIDAYS_KR[ttDate];
+  document.getElementById('cal-title').textContent =
+    `${tm}월 ${td}일 (${dowLabels[new Date(ty, tm - 1, td).getDay()]})` +
+    (ttDate === todayStr() ? ' · 오늘' : '') + (holiday ? ` · ${holiday}` : '');
+  document.getElementById('cal-prev').onclick = () => ttShiftDay(-1);
+  document.getElementById('cal-next').onclick = () => ttShiftDay(1);
   const body = document.getElementById('tt-body');
   const items = ttItems();
   if (items.length === 0) {
@@ -6739,7 +6754,7 @@ function editTimetableItem(id) {
   document.getElementById('tt-start').value = it.start;
   document.getElementById('tt-end').value = it.end || '';
   document.getElementById('tt-text').value = it.text;
-  const btn = document.querySelector('#tt-overlay .tt-add .btn-primary');
+  const btn = document.getElementById('tt-add-btn');
   if (btn) btn.textContent = '✓ 수정 저장';
   document.getElementById('tt-text').focus();
 }

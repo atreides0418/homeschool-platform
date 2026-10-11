@@ -4380,6 +4380,7 @@ body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222
 /* ============================================================
    TIMETABLE (하루 시간표)
    ============================================================ */
+.tt-open-btn { margin-left: 8px; white-space: nowrap; }
 .tt-open-btn, .tt-default-btn, .tt-clear-btn {
   font-family: inherit; cursor: pointer; border-radius: 20px;
   font-size: 12px; font-weight: 700; padding: 6px 12px;
@@ -4389,9 +4390,8 @@ body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222
 .tt-open-btn:hover, .tt-default-btn:hover { background: var(--primary-light); color: #fff; }
 .tt-clear-btn { background: transparent; border-color: var(--border); color: var(--text-light); }
 .tt-clear-btn:hover { background: var(--bg-hover); }
-.tt-card { width: 460px; max-height: 88vh; }
-.tt-toolbar { display: flex; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--border-light); }
-.tt-body { padding: 12px 16px; overflow-y: auto; min-height: 120px; }
+.tt-toolbar { display: flex; gap: 8px; padding: 4px 0 10px; }
+.tt-body { overflow-y: auto; min-height: 120px; max-height: 420px; padding-right: 4px; }
 .tt-empty { text-align: center; color: var(--text-light); font-size: 13px; padding: 28px 8px; line-height: 1.7; }
 .tt-row {
   display: flex; align-items: stretch; gap: 10px;
@@ -4407,8 +4407,9 @@ body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222
 .tt-btns { display: flex; align-items: center; gap: 2px; }
 .tt-btns button { background: none; border: none; cursor: pointer; color: var(--text-light); font-size: 14px; padding: 4px 6px; border-radius: 6px; }
 .tt-btns button:hover { background: var(--primary-soft); color: var(--primary-dark); }
-.tt-add { padding: 12px 16px 16px; border-top: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 8px; }
+.tt-add { padding: 12px 0 0; margin-top: 8px; border-top: 1px solid var(--border-light); display: flex; flex-direction: column; gap: 8px; }
 .tt-add-times { display: flex; align-items: center; gap: 8px; }
 .tt-add-times .form-input { flex: 1; }
 .tt-tilde { color: var(--text-light); }
 .tt-hint { font-size: 11px; color: var(--text-light); line-height: 1.5; }
+.calendar-nav .cal-title { flex: 1; text-align: center; }
