@@ -6660,6 +6660,7 @@ function toggleDayView() {
     renderTimetable();
   } else {
     ttDate = null;
+    ttRenderedDate = null;
     renderCalendar();
   }
 }
@@ -6681,6 +6682,12 @@ function ttResetForm() {
   if (btn) btn.textContent = '+ 시간표에 추가';
 }
 
+const TT_PX = 64;          // 1시간 = 64px
+const TT_DAY_START = 240;  // 타임라인은 새벽 4시부터 다음날 새벽 4시까지
+let ttRenderedDate = null;
+
+function ttNorm(m) { return m < TT_DAY_START ? m + 1440 : m; }
+
 function renderTimetable() {
   const [ty, tm, td] = ttDate.split('-').map(Number);
   const dowLabels = ['일', '월', '화', '수', '목', '금', '토'];
@@ -6690,35 +6697,96 @@ function renderTimetable() {
     (ttDate === todayStr() ? ' · 오늘' : '') + (holiday ? ` · ${holiday}` : '');
   document.getElementById('cal-prev').onclick = () => ttShiftDay(-1);
   document.getElementById('cal-next').onclick = () => ttShiftDay(1);
+
   const body = document.getElementById('tt-body');
+  const prevScroll = body.scrollTop;
   const items = ttItems();
-  if (items.length === 0) {
-    body.innerHTML = `<div class="tt-empty">아직 시간표가 비어 있어요.<br>아래에서 직접 추가하거나 <b>⭐ 기본 일정</b>을 눌러보세요.</div>`;
-    return;
-  }
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const isToday = ttDate === todayStr();
-  body.innerHTML = items.map((it, i) => {
-    let live = false;
-    if (isToday && it.end) {
-      const s = ttMin(it.start), e = ttMin(it.end);
-      live = e > s ? (nowMin >= s && nowMin < e) : (nowMin >= s || nowMin < e);
-    }
+
+  // 블록 위치/크기 계산 + 겹치는 일정은 옆으로 나란히(레인) 배치
+  const MIN_H = 22;
+  const blocks = items.map((it, i) => {
+    const s = ttNorm(ttMin(it.start));
+    let e = it.end ? ttNorm(ttMin(it.end)) : s;
+    if (it.end && e <= s) e += 1440;
+    const vEnd = Math.max(e, s + MIN_H / TT_PX * 60);
+    return { it, i, s, e, vEnd, lane: 0, lanes: 1 };
+  });
+  let cluster = [], clusterEnd = -1, laneEnds = [];
+  const flush = () => { cluster.forEach(b => b.lanes = laneEnds.length); cluster = []; laneEnds = []; };
+  blocks.forEach(b => {
+    if (b.s >= clusterEnd) { flush(); clusterEnd = -1; }
+    let lane = laneEnds.findIndex(le => le <= b.s);
+    if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+    laneEnds[lane] = b.vEnd;
+    b.lane = lane;
+    cluster.push(b);
+    clusterEnd = Math.max(clusterEnd, b.vEnd);
+  });
+  flush();
+
+  let hours = '';
+  for (let k = 0; k < 24; k++) {
+    const h = (TT_DAY_START / 60 + k) % 24;
+    const ap = h < 12 ? '오전' : '오후';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    hours += `<div class="tt-hour" style="top:${k * TT_PX}px"><span>${ap} ${h12}시</span></div>`;
+  }
+
+  const blockHtml = blocks.map(b => {
+    const it = b.it;
+    const top = (b.s - TT_DAY_START) / 60 * TT_PX;
+    const height = (b.vEnd - b.s) / 60 * TT_PX;
+    const w = 100 / b.lanes;
+    const live = isToday && it.end && (() => {
+      const n = ttNorm(nowMin);
+      return n >= b.s && n < b.e;
+    })();
+    const color = TT_COLORS[b.i % TT_COLORS.length];
     const dur = ttDurText(it.start, it.end);
+    const tall = height >= 44;
     return `
-      <div class="tt-row${live ? ' tt-now' : ''}">
-        <div class="tt-bar" style="background:${TT_COLORS[i % TT_COLORS.length]}"></div>
-        <div class="tt-main">
-          <div class="tt-time">${ttFmt(it.start)}${it.end ? ' ~ ' + ttFmt(it.end) : ''}${dur ? `<span class="tt-dur">${dur}</span>` : ''}${live ? ' <span class="tt-dur">· 지금</span>' : ''}</div>
-          <div class="tt-text">${escHtml(it.text)}</div>
-        </div>
-        <div class="tt-btns">
-          <button onclick="editTimetableItem('${it.id}')" title="수정">✎</button>
-          <button onclick="removeTimetableItem('${it.id}')" title="삭제">✕</button>
-        </div>
+      <div class="tt-block${live ? ' tt-now' : ''}${it.end ? '' : ' tt-point'}"
+           style="top:${top}px;height:${height - 2}px;left:calc(${b.lane * w}% + 2px);width:calc(${w}% - 4px);--tt-c:${color}"
+           title="${escHtml(ttFmt(it.start) + (it.end ? ' ~ ' + ttFmt(it.end) : '') + ' · ' + it.text)}"
+           onclick="editTimetableItem('${it.id}')">
+        <button class="tt-block-del" onclick="event.stopPropagation();removeTimetableItem('${it.id}')" title="삭제">✕</button>
+        <div class="tt-block-text">${escHtml(it.text)}</div>
+        ${tall ? `<div class="tt-block-time">${ttFmt(it.start)}${it.end ? ' ~ ' + ttFmt(it.end) : ''}${dur ? ' · ' + dur : ''}</div>` : ''}
       </div>`;
   }).join('');
+
+  const nowLine = isToday
+    ? `<div class="tt-nowline" style="top:${(ttNorm(nowMin) - TT_DAY_START) / 60 * TT_PX}px"></div>` : '';
+
+  body.innerHTML = `
+    <div class="tt-tl" style="height:${24 * TT_PX}px">
+      ${hours}
+      <div class="tt-events" onclick="ttGridClick(event)">${blockHtml}${nowLine}</div>
+    </div>
+    ${items.length === 0 ? '<div class="tt-empty-hint">비어 있어요 · 빈 곳을 눌러 시간을 잡거나 ⭐ 기본 일정을 눌러보세요</div>' : ''}`;
+
+  if (ttRenderedDate !== ttDate) {
+    ttRenderedDate = ttDate;
+    const focusMin = items.length ? blocks[0].s : (isToday ? ttNorm(nowMin) - 60 : 8 * 60);
+    body.scrollTop = Math.max(0, (focusMin - TT_DAY_START) / 60 * TT_PX - 24);
+  } else {
+    body.scrollTop = prevScroll;
+  }
+}
+
+// 빈 곳을 누르면 그 시간(15분 단위)이 시작 시간 칸에 들어간다
+function ttGridClick(e) {
+  if (e.target.id !== undefined && !e.target.classList.contains('tt-events')) return;
+  const y = e.offsetY;
+  let m = Math.round((TT_DAY_START + y / TT_PX * 60) / 15) * 15;
+  m %= 1440;
+  ttResetForm();
+  document.getElementById('tt-start').value =
+    `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  document.getElementById('tt-end').focus();
 }
 
 function addTimetableItem() {

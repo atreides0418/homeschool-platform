@@ -4391,7 +4391,7 @@ body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222
 .tt-clear-btn { background: transparent; border-color: var(--border); color: var(--text-light); }
 .tt-clear-btn:hover { background: var(--bg-hover); }
 .tt-toolbar { display: flex; gap: 8px; padding: 4px 0 10px; }
-.tt-body { overflow-y: auto; min-height: 120px; max-height: 420px; padding-right: 4px; }
+.tt-body { overflow-y: auto; height: 460px; position: relative; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: #fff; }
 .tt-empty { text-align: center; color: var(--text-light); font-size: 13px; padding: 28px 8px; line-height: 1.7; }
 .tt-row {
   display: flex; align-items: stretch; gap: 10px;
@@ -4413,3 +4413,23 @@ body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222
 .tt-tilde { color: var(--text-light); }
 .tt-hint { font-size: 11px; color: var(--text-light); line-height: 1.5; }
 .calendar-nav .cal-title { flex: 1; text-align: center; }
+
+/* 시간표 타임라인: 왼쪽 시간축 + 오른쪽 일정 블록 */
+.tt-tl { position: relative; }
+.tt-hour { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--border-light); }
+.tt-hour span { position: absolute; left: 6px; top: 4px; width: 54px; font-size: 11px; color: var(--text-light); font-weight: 600; }
+.tt-events { position: absolute; left: 66px; right: 6px; top: 0; bottom: 0; border-left: 1px solid var(--border); cursor: cell; }
+.tt-block {
+  position: absolute; box-sizing: border-box; overflow: hidden; cursor: pointer;
+  background: color-mix(in srgb, var(--tt-c) 18%, #fff); border-left: 4px solid var(--tt-c);
+  border-radius: 6px; padding: 2px 22px 2px 7px;
+}
+.tt-block:hover { background: color-mix(in srgb, var(--tt-c) 30%, #fff); z-index: 2; }
+.tt-block.tt-now { box-shadow: 0 0 0 2px var(--accent-warm); z-index: 2; }
+.tt-block.tt-point { border-left-style: dotted; }
+.tt-block-text { font-size: 13px; font-weight: 700; color: var(--text-dark); line-height: 1.25; }
+.tt-block-time { font-size: 11px; color: var(--text-mid); margin-top: 1px; }
+.tt-block-del { position: absolute; top: 1px; right: 2px; background: none; border: none; cursor: pointer; color: var(--text-light); font-size: 11px; padding: 2px 4px; opacity: 0; }
+.tt-block:hover .tt-block-del { opacity: 1; }
+.tt-nowline { position: absolute; left: 0; right: 0; height: 2px; background: #D45C5C; z-index: 3; pointer-events: none; }
+.tt-empty-hint { position: absolute; top: 12px; left: 76px; right: 12px; text-align: center; font-size: 12px; color: var(--text-light); pointer-events: none; }
