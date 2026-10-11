@@ -6590,3 +6590,185 @@ function priorityToSchedule(id) {
   document.getElementById('desc-input').value = '';
   addScheduleItem();
 }
+
+/* ============================================================
+   TIMETABLE (하루 시간표) — 날짜별, 분 단위 자유 시간
+   저장: localStorage hs_timetable = { 'YYYY-M-D': [{id,start,end,text}] }  (시간은 'HH:MM', end는 비어 있을 수 있음)
+   ============================================================ */
+const TT_KEY = 'hs_timetable';
+const TT_COLORS = ['#C8956C','#8B7BD4','#6BAF6B','#D45C5C','#5C8BD4','#D4A05C'];
+// 지윤이의 기본 일정
+const TT_DEFAULT = [
+  ['09:00', '',      '기상'],
+  ['09:00', '09:15', '책 읽기'],
+  ['09:15', '10:10', '국어 공부'],
+  ['10:10', '12:20', '영어 공부 (점심 먹기 직전까지)'],
+  ['12:20', '13:30', '점심 식사'],
+  ['13:30', '16:30', '수학 공부 (50분 공부 + 10분 쉬기)'],
+  ['16:30', '18:30', '과학 공부 (50분 공부 + 10분 쉬기)'],
+  ['20:00', '21:00', '수업'],
+  ['21:00', '22:00', '수업 복습 + 고전 공부'],
+  ['22:00', '23:00', '운동 후 자유롭게 프로젝트 + 뇌과학 공부'],
+  ['01:30', '',      '취침']
+];
+let ttDate = null;
+let ttEditingId = null;
+
+function ttLoadAll() {
+  try { return JSON.parse(localStorage.getItem(TT_KEY)) || {}; } catch (_) { return {}; }
+}
+function ttSaveAll(all) {
+  try { localStorage.setItem(TT_KEY, JSON.stringify(all)); } catch (_) {}
+}
+function ttMin(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+// 하루는 새벽 4시에 시작한다고 보고 정렬 (새벽 1:30 취침이 맨 뒤로 가도록)
+function ttSortKey(hhmm) {
+  const m = ttMin(hhmm);
+  return m < 240 ? m + 1440 : m;
+}
+function ttFmt(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const ap = h < 12 ? '오전' : '오후';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${ap} ${h12}:${String(m).padStart(2, '0')}`;
+}
+function ttDurText(start, end) {
+  if (!end) return '';
+  let d = ttMin(end) - ttMin(start);
+  if (d <= 0) d += 1440;
+  const h = Math.floor(d / 60), m = d % 60;
+  return (h ? `${h}시간` : '') + (h && m ? ' ' : '') + (m ? `${m}분` : '');
+}
+function ttItems() {
+  const items = ttLoadAll()[ttDate] || [];
+  return items.slice().sort((a, b) => ttSortKey(a.start) - ttSortKey(b.start));
+}
+
+function openTimetable() {
+  if (!currentPopupDate) return;
+  ttDate = currentPopupDate;
+  ttEditingId = null;
+  const [, m, d] = ttDate.split('-').map(Number);
+  document.getElementById('tt-title').textContent = `🕐 ${m}월 ${d}일 하루 시간표`;
+  ttResetForm();
+  renderTimetable();
+  document.getElementById('tt-overlay').style.display = 'flex';
+}
+
+function closeTimetable(e) {
+  if (e && e.target.id !== 'tt-overlay') return;
+  document.getElementById('tt-overlay').style.display = 'none';
+  ttDate = null;
+  ttEditingId = null;
+}
+
+function ttResetForm() {
+  ttEditingId = null;
+  document.getElementById('tt-start').value = '';
+  document.getElementById('tt-end').value = '';
+  document.getElementById('tt-text').value = '';
+  const btn = document.querySelector('#tt-overlay .tt-add .btn-primary');
+  if (btn) btn.textContent = '+ 시간표에 추가';
+}
+
+function renderTimetable() {
+  const body = document.getElementById('tt-body');
+  const items = ttItems();
+  if (items.length === 0) {
+    body.innerHTML = `<div class="tt-empty">아직 시간표가 비어 있어요.<br>아래에서 직접 추가하거나 <b>⭐ 기본 일정</b>을 눌러보세요.</div>`;
+    return;
+  }
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const isToday = ttDate === todayStr();
+  body.innerHTML = items.map((it, i) => {
+    let live = false;
+    if (isToday && it.end) {
+      const s = ttMin(it.start), e = ttMin(it.end);
+      live = e > s ? (nowMin >= s && nowMin < e) : (nowMin >= s || nowMin < e);
+    }
+    const dur = ttDurText(it.start, it.end);
+    return `
+      <div class="tt-row${live ? ' tt-now' : ''}">
+        <div class="tt-bar" style="background:${TT_COLORS[i % TT_COLORS.length]}"></div>
+        <div class="tt-main">
+          <div class="tt-time">${ttFmt(it.start)}${it.end ? ' ~ ' + ttFmt(it.end) : ''}${dur ? `<span class="tt-dur">${dur}</span>` : ''}${live ? ' <span class="tt-dur">· 지금</span>' : ''}</div>
+          <div class="tt-text">${escHtml(it.text)}</div>
+        </div>
+        <div class="tt-btns">
+          <button onclick="editTimetableItem('${it.id}')" title="수정">✎</button>
+          <button onclick="removeTimetableItem('${it.id}')" title="삭제">✕</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function addTimetableItem() {
+  const startEl = document.getElementById('tt-start');
+  const endEl = document.getElementById('tt-end');
+  const textEl = document.getElementById('tt-text');
+  const start = startEl.value, end = endEl.value, text = textEl.value.trim();
+  const flash = el => { el.focus(); el.style.borderColor = '#D45C5C'; setTimeout(() => el.style.borderColor = '', 1200); };
+  if (!start) return flash(startEl);
+  if (!text) return flash(textEl);
+
+  const all = ttLoadAll();
+  const list = all[ttDate] || [];
+  const wasEditing = !!ttEditingId;
+  if (wasEditing) {
+    const it = list.find(i => i.id === ttEditingId);
+    if (it) { it.start = start; it.end = end; it.text = text; }
+  } else {
+    list.push({ id: genId(), start, end, text });
+  }
+  all[ttDate] = list;
+  ttSaveAll(all);
+  ttResetForm();
+  renderTimetable();
+  showToast(wasEditing ? '시간표를 수정했어요' : `「${text}」 시간표에 추가했어요`, '🕐');
+  startEl.focus();
+}
+
+function editTimetableItem(id) {
+  const it = (ttLoadAll()[ttDate] || []).find(i => i.id === id);
+  if (!it) return;
+  ttEditingId = id;
+  document.getElementById('tt-start').value = it.start;
+  document.getElementById('tt-end').value = it.end || '';
+  document.getElementById('tt-text').value = it.text;
+  const btn = document.querySelector('#tt-overlay .tt-add .btn-primary');
+  if (btn) btn.textContent = '✓ 수정 저장';
+  document.getElementById('tt-text').focus();
+}
+
+function removeTimetableItem(id) {
+  const all = ttLoadAll();
+  all[ttDate] = (all[ttDate] || []).filter(i => i.id !== id);
+  if (all[ttDate].length === 0) delete all[ttDate];
+  ttSaveAll(all);
+  if (ttEditingId === id) ttResetForm();
+  renderTimetable();
+}
+
+function applyDefaultTimetable() {
+  const all = ttLoadAll();
+  if ((all[ttDate] || []).length > 0 && !confirm('이 날의 시간표를 기본 일정으로 바꿀까요?\n지금 있는 시간표는 사라져요.')) return;
+  all[ttDate] = TT_DEFAULT.map(([start, end, text]) => ({ id: genId(), start, end, text }));
+  ttSaveAll(all);
+  ttResetForm();
+  renderTimetable();
+  showToast('기본 일정을 불러왔어요', '⭐');
+}
+
+function clearTimetable() {
+  const all = ttLoadAll();
+  if (!(all[ttDate] || []).length) return;
+  if (!confirm('이 날의 시간표를 모두 지울까요?')) return;
+  delete all[ttDate];
+  ttSaveAll(all);
+  ttResetForm();
+  renderTimetable();
+}

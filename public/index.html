@@ -736,7 +736,10 @@
           <span class="today-popup-title" id="date-popup-title">📅 날짜</span>
           <span class="today-popup-count" id="date-popup-count"></span>
         </div>
-        <button class="popup-close" onclick="closeDatePopup()">✕</button>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="tt-open-btn" onclick="openTimetable()">🕐 하루 시간표</button>
+          <button class="popup-close" onclick="closeDatePopup()">✕</button>
+        </div>
       </div>
       <div class="today-popup-body" id="date-popup-body"></div>
       <div class="date-popup-add">
@@ -752,6 +755,34 @@
         <input type="text" id="date-popup-desc" class="form-input" placeholder="할 내용 (선택사항)"
                onkeypress="if(event.key==='Enter') addToDatePopup()" style="margin-top:6px">
         <button class="btn-primary" onclick="addToDatePopup()" style="margin-top:8px;width:100%">+ 일정 추가</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timetable (하루 시간표) -->
+  <div id="tt-overlay" class="popup-overlay" style="display:none" onclick="closeTimetable(event)">
+    <div class="today-popup-card tt-card">
+      <div class="today-popup-header">
+        <div>
+          <span class="today-popup-title" id="tt-title">🕐 하루 시간표</span>
+        </div>
+        <button class="popup-close" onclick="closeTimetable()">✕</button>
+      </div>
+      <div class="tt-toolbar">
+        <button class="tt-default-btn" onclick="applyDefaultTimetable()">⭐ 기본 일정</button>
+        <button class="tt-clear-btn" onclick="clearTimetable()">전체 비우기</button>
+      </div>
+      <div class="today-popup-body tt-body" id="tt-body"></div>
+      <div class="tt-add">
+        <div class="tt-add-times">
+          <input type="time" id="tt-start" class="form-input" title="시작 시간">
+          <span class="tt-tilde">~</span>
+          <input type="time" id="tt-end" class="form-input" title="끝나는 시간 (비워도 돼요)">
+        </div>
+        <input type="text" id="tt-text" class="form-input" placeholder="할 일 (예: 수학 공부)"
+               onkeypress="if(event.key==='Enter') addTimetableItem()">
+        <button class="btn-primary" onclick="addTimetableItem()" style="width:100%">+ 시간표에 추가</button>
+        <div class="tt-hint">끝나는 시간은 비워도 돼요 (기상·취침처럼 한 시점만 있는 일정). 분 단위로 자유롭게 정할 수 있어요.</div>
       </div>
     </div>
   </div>
