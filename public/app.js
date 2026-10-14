@@ -101,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
   updateChecklistProgress();
   updateHomeStats();
   updateTimerTodayHint();
-  fcInit();
+  vcInit();
 
   musicPlayer.init();
   initMemo();
@@ -150,7 +150,7 @@ function navigate(page) {
     if (activeGame === 'paper')   { ensurePaperInit();   ppResume(); }
   }
   if (page === 'stats') renderStats();
-  if (page === 'cards') fcRenderDecks();
+  if (page === 'cards') vcRender();
   if (page === 'timer') updateTimerTodayHint();
 
   updateMemoStarVisibility(page);
@@ -5630,374 +5630,691 @@ function renderStats() {
 }
 
 /* ============================================================
-   FLASHCARDS — 암기 카드
+   VOCAB — 영어 단어 (하루 N개 신규 · 3일 누적 복습)
+   - 묶음(batch) = 하루에 배정된 신규 단어들
+   - 복습 대상: 최근 묶음 2개(어제·그제) + 아직 헷갈리는 단어
+   - 그보다 오래된 묶음은 졸업 (헷갈리는 단어는 알아요가 될 때까지 보류)
+   - 아직 안 배운 단어가 하루 분량보다 적으면 그날 학습을 시작하지 않음
    ============================================================ */
-const FC_STORAGE_KEY = 'hs_flashcards_v1';
+const VC_STORAGE_KEY    = 'hs_vocab_v1';
+const VC_DAILY_KEY      = 'hs_vocab_daily';
+const VC_DAILY_DEFAULT  = 15;
+const VC_REVIEW_BATCHES = 2;   // 오늘 신규 + 어제 + 그제 = 3일 누적
 
-const fcState = {
-  deckId: null,     // 열려 있는 덱
-  queue: [],        // 학습 큐 (카드 객체 참조)
-  idx: 0,
+const vcState = {
+  tab: 'today',      // today | book
+  filter: 'all',     // all | learning | graduated | confused
   flipped: false,
-  againIds: [],     // 이번 세션에서 "다시 볼래요"한 카드
-  knowCount: 0
+  editingId: null,
+  quiz: null         // { ids, idx, score, picked }
 };
 
-function fcLoad() {
+function vcLoad() {
   try {
-    const data = JSON.parse(localStorage.getItem(FC_STORAGE_KEY));
-    if (data && Array.isArray(data.decks)) return data;
+    const d = JSON.parse(localStorage.getItem(VC_STORAGE_KEY));
+    if (d && Array.isArray(d.words)) {
+      if (!Array.isArray(d.batches)) d.batches = [];
+      if (!d.dayCount) d.dayCount = 0;
+      return d;
+    }
   } catch (_) {}
-  return { decks: [] };
+  return { words: [], batches: [], today: null, dayCount: 0 };
 }
 
-function fcSave(data) {
-  try { localStorage.setItem(FC_STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
+function vcSave(d) {
+  try { localStorage.setItem(VC_STORAGE_KEY, JSON.stringify(d)); } catch (_) {}
 }
 
-function fcGetDeck(data, id) { return data.decks.find(d => d.id === id); }
+function vcGetDaily() {
+  const n = parseInt(localStorage.getItem(VC_DAILY_KEY), 10);
+  return n >= 1 && n <= 100 ? n : VC_DAILY_DEFAULT;
+}
 
-function fcInit() {
-  // 학습 모드 키보드 조작: Space=뒤집기, ←=다시, →=외웠어요
+function vcSetDaily(value) {
+  let n = parseInt(value, 10);
+  if (!(n >= 1)) n = VC_DAILY_DEFAULT;
+  n = Math.min(100, n);
+  localStorage.setItem(VC_DAILY_KEY, String(n));
+  const el = document.getElementById('vc-daily-input');
+  if (el) el.value = n;
+  showToast(`하루 새 단어를 ${n}개로 정했어요 (다음 학습부터 적용)`, '🔤');
+  if (state.page === 'cards') vcRender();
+}
+
+function vcShuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function vcInit() {
+  // 음성 목록 미리 불러오기 (크롬은 비동기로 채워짐)
+  if ('speechSynthesis' in window) speechSynthesis.getVoices();
+
+  const daily = document.getElementById('vc-daily-input');
+  if (daily) daily.value = vcGetDaily();
+
+  // 기존 암기 카드 데이터가 있으면 가져오기 버튼 표시
+  const legacyBtn = document.getElementById('vc-legacy-btn');
+  if (legacyBtn && vcLegacyCards().length) legacyBtn.style.display = '';
+
+  // 키보드: Space/Enter=뒤집기, ←=헷갈려요, →=알아요, S=발음 / 퀴즈: 1~4 선택, Enter=다음
   document.addEventListener('keydown', (e) => {
-    const studyView = document.getElementById('fc-study-view');
-    if (!studyView || studyView.style.display === 'none') return;
     if (!document.getElementById('page-cards').classList.contains('active')) return;
     const tag = (e.target.tagName || '').toLowerCase();
-    if (tag === 'input' || tag === 'textarea') return;
-    const doneVisible = document.getElementById('fc-study-done').style.display !== 'none';
-    if (doneVisible) return;
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
 
-    if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); fcFlip(); }
-    else if (e.key === 'ArrowLeft'  && fcState.flipped) fcAnswer(false);
-    else if (e.key === 'ArrowRight' && fcState.flipped) fcAnswer(true);
+    if (document.getElementById('vc-study-view').style.display !== 'none') {
+      if (e.code === 'Space' || e.key === 'Enter') { e.preventDefault(); vcFlip(); }
+      else if (e.key === 'ArrowLeft'  && vcState.flipped) vcAnswer(false);
+      else if (e.key === 'ArrowRight' && vcState.flipped) vcAnswer(true);
+      else if (e.key === 's' || e.key === 'S') vcSpeakCurrent();
+    } else if (document.getElementById('vc-quiz-view').style.display !== 'none') {
+      const q = vcState.quiz;
+      if (!q) return;
+      if (q.picked === null && /^[1-4]$/.test(e.key)) {
+        const btn = document.querySelectorAll('#vc-quiz-options .vc-quiz-opt')[+e.key - 1];
+        if (btn) btn.click();
+      } else if (q.picked !== null && (e.key === 'Enter' || e.code === 'Space')) {
+        e.preventDefault();
+        vcQuizNext();
+      }
+    }
   });
 }
 
-/* ── 뷰 전환 ── */
-function fcShowView(view) {
-  document.getElementById('fc-deck-list-view').style.display = view === 'list'  ? 'block' : 'none';
-  document.getElementById('fc-deck-view').style.display      = view === 'deck'  ? 'block' : 'none';
-  document.getElementById('fc-study-view').style.display     = view === 'study' ? 'block' : 'none';
+/* ── 오늘 학습 배정 (날짜 기준 고정) ── */
+function vcEnsureToday(d) {
+  const today = todayStr();
+  if (d.today && d.today.date === today) return true;
+
+  const n = vcGetDaily();
+  const fresh = d.words.filter(w => w.status === 'new');
+  if (fresh.length < n) return false;
+
+  const byId = new Map(d.words.map(w => [w.id, w]));
+
+  // 1) 오래된 묶음 졸업 — 최근 묶음 VC_REVIEW_BATCHES개만 남김
+  while (d.batches.length > VC_REVIEW_BATCHES) {
+    const old = d.batches.shift();
+    old.ids.forEach(id => {
+      const w = byId.get(id);
+      if (w && w.status === 'learning' && !w.needsReview) w.status = 'graduated';
+    });
+  }
+
+  // 2) 복습 목록: 최근 묶음 + 졸업 보류된 헷갈리는 단어
+  const reviewIds = [];
+  const seen = new Set();
+  d.batches.forEach(b => b.ids.forEach(id => {
+    if (byId.has(id) && !seen.has(id)) { seen.add(id); reviewIds.push(id); }
+  }));
+  d.words.forEach(w => {
+    if (w.status === 'learning' && w.needsReview && !seen.has(w.id)) { seen.add(w.id); reviewIds.push(w.id); }
+  });
+
+  // 3) 신규 배정 (추가한 순서대로)
+  const newWords = fresh.slice(0, n);
+  newWords.forEach(w => { w.status = 'learning'; w.firstStudied = today; });
+  const newIds = newWords.map(w => w.id);
+  d.batches.push({ date: today, ids: newIds });
+  d.dayCount++;
+
+  d.today = {
+    date: today,
+    day: d.dayCount,
+    reviewIds,
+    newIds,
+    // 복습 먼저, 신규는 그다음
+    queue: [
+      ...vcShuffle(reviewIds).map(id => ({ id, kind: 'review' })),
+      ...newIds.map(id => ({ id, kind: 'new' }))
+    ],
+    quizDone: false,
+    quizScore: null
+  };
+  vcSave(d);
+  return true;
 }
 
-/* ── 덱 목록 ── */
-function fcRenderDecks() {
-  fcShowView(fcState.deckId ? 'deck' : 'list');
-  if (fcState.deckId) { fcRenderDeckView(); return; }
+function vcTodayCounts(t) {
+  const total = t.reviewIds.length + t.newIds.length;
+  const left  = t.queue.filter(q => q.kind !== 'retry').length;
+  return { total, done: total - left };
+}
 
-  const data  = fcLoad();
-  const grid  = document.getElementById('fc-deck-grid');
-  const empty = document.getElementById('fc-empty');
-  if (!grid) return;
+/* ── 뷰 전환 ── */
+function vcShowView(view) {
+  ['today', 'book', 'study', 'quiz'].forEach(v => {
+    document.getElementById(`vc-${v}-view`).style.display = v === view ? 'block' : 'none';
+  });
+  document.getElementById('vc-tabs').style.display = (view === 'study' || view === 'quiz') ? 'none' : '';
+  document.querySelectorAll('.vc-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === view));
+}
 
-  if (data.decks.length === 0) {
-    grid.innerHTML = '';
-    if (empty) empty.style.display = 'block';
+function vcSetTab(tab) {
+  vcState.tab = tab;
+  vcRender();
+}
+
+function vcRender() {
+  if (vcState.tab === 'book') { vcShowView('book'); vcRenderBook(); }
+  else { vcShowView('today'); vcRenderToday(); }
+}
+
+/* ── 오늘 학습 화면 ── */
+function vcRenderToday() {
+  const d = vcLoad();
+  const box = document.getElementById('vc-today-card');
+  if (!box) return;
+  const n = vcGetDaily();
+  const ready = vcEnsureToday(d);
+
+  const cnt = { learning: 0, graduated: 0, fresh: 0 };
+  d.words.forEach(w => {
+    if (w.status === 'graduated') cnt.graduated++;
+    else if (w.status === 'learning') cnt.learning++;
+    else cnt.fresh++;
+  });
+  const statsLine = `
+    <div class="vc-stat-row">
+      <span class="vc-stat"><b>${d.words.length}</b>전체 단어</span>
+      <span class="vc-stat"><b>${cnt.fresh}</b>남은 새 단어</span>
+      <span class="vc-stat"><b>${cnt.learning}</b>학습중</span>
+      <span class="vc-stat"><b>${cnt.graduated}</b>졸업 🎓</span>
+    </div>`;
+
+  if (!ready) {
+    const need = n - cnt.fresh;
+    box.innerHTML = `
+      <div class="vc-today-locked">
+        <div class="vc-today-emoji">🔒</div>
+        <h3>새 단어가 ${need}개 더 필요해요</h3>
+        <p>하루에 새 단어 ${n}개씩 배워요. 아직 안 배운 단어가 ${cnt.fresh}개라서<br>
+           ${n}개가 채워질 때까지 오늘 학습을 시작할 수 없어요.</p>
+        <button class="btn-primary vc-big-btn" onclick="vcSetTab('book')">📒 단어 추가하러 가기</button>
+      </div>
+      ${statsLine}`;
     return;
   }
-  if (empty) empty.style.display = 'none';
 
-  grid.innerHTML = data.decks.map(d => {
-    const known = d.cards.filter(c => !c.miss).length;
-    const pct   = d.cards.length ? Math.round(known / d.cards.length * 100) : 0;
+  const t = d.today;
+  const { total, done } = vcTodayCounts(t);
+  const pct = total ? Math.round(done / total * 100) : 0;
+  const finished = t.queue.length === 0;
+
+  let action;
+  if (!finished) {
+    action = `<button class="btn-primary vc-big-btn" onclick="vcStartStudy()">${done === 0 && t.queue.every(q => q.kind !== 'retry') ? '▶ 학습 시작' : '▶ 이어서 하기'}</button>`;
+  } else if (!t.quizDone) {
+    action = `<button class="btn-primary vc-big-btn" onclick="vcStartQuiz()">📝 마무리 퀴즈 풀기</button>`;
+  } else {
+    action = `
+      <div class="vc-today-done">🎉 오늘 학습 끝! 마무리 퀴즈 <b>${escHtml(t.quizScore || '')}</b></div>
+      <button class="modal-cancel vc-again-btn" onclick="vcStartQuiz()">📝 퀴즈 다시 풀기</button>`;
+  }
+
+  box.innerHTML = `
+    <div class="vc-today-head">
+      <span class="vc-day-badge">${t.day}일차</span>
+      <span class="vc-today-date">${escHtml(t.date.replace(/^\d+-/, '').replace('-', '월 '))}일</span>
+    </div>
+    <div class="vc-today-chips">
+      <span class="vc-chip review">🔁 복습 ${t.reviewIds.length}개</span>
+      <span class="vc-chip new">✨ 새 단어 ${t.newIds.length}개</span>
+    </div>
+    <div class="vc-today-progress">
+      <div class="vc-progress-bar"><div class="vc-progress-fill" style="width:${pct}%"></div></div>
+      <span class="vc-progress-text">${done} / ${total}</span>
+    </div>
+    <div class="vc-today-action">${action}</div>
+    ${statsLine}`;
+}
+
+/* ── 플래시카드 학습 ── */
+function vcStartStudy() {
+  const d = vcLoad();
+  if (!vcEnsureToday(d) || !d.today.queue.length) { vcRender(); return; }
+  vcShowView('study');
+  vcShowCard(d);
+}
+
+function vcShowCard(d) {
+  d = d || vcLoad();
+  const t = d.today;
+  if (!t || t.date !== todayStr()) { vcRender(); return; }
+
+  // 삭제된 단어는 건너뜀
+  const byId = new Map(d.words.map(w => [w.id, w]));
+  while (t.queue.length && !byId.has(t.queue[0].id)) t.queue.shift();
+  if (!t.queue.length) { vcSave(d); vcStartQuiz(); return; }
+
+  const item = t.queue[0];
+  const w = byId.get(item.id);
+
+  vcState.flipped = false;
+  document.getElementById('vc-flip-inner').classList.remove('flipped');
+  const stage = document.getElementById('vc-flip-card');
+  stage.classList.remove('fc-enter');
+  void stage.offsetWidth;
+  stage.classList.add('fc-enter');
+
+  document.getElementById('vc-front-word').textContent = w.word;
+  document.getElementById('vc-front-pos').textContent  = w.pos || '';
+  document.getElementById('vc-back-meaning').textContent = w.meaning;
+  document.getElementById('vc-back-example').textContent = w.example || '';
+
+  const kind = document.getElementById('vc-card-kind');
+  kind.textContent = { review: '🔁 복습', new: '✨ 새 단어', retry: '🤔 한 번 더' }[item.kind];
+  kind.className = 'vc-card-kind ' + item.kind;
+
+  const { total, done } = vcTodayCounts(t);
+  document.getElementById('vc-study-progress').textContent = `${done} / ${total}`;
+  document.getElementById('vc-progress-fill').style.width = (total ? done / total * 100 : 0) + '%';
+
+  vcUpdateAnswerButtons();
+}
+
+function vcFlip() {
+  vcState.flipped = !vcState.flipped;
+  document.getElementById('vc-flip-inner').classList.toggle('flipped', vcState.flipped);
+  vcUpdateAnswerButtons();
+}
+
+function vcUpdateAnswerButtons() {
+  document.querySelectorAll('#vc-study-actions button').forEach(b => { b.disabled = !vcState.flipped; });
+}
+
+function vcAnswer(know) {
+  if (!vcState.flipped) return;
+  const d = vcLoad();
+  const t = d.today;
+  if (!t || t.date !== todayStr() || !t.queue.length) { vcRender(); return; }
+
+  const item = t.queue.shift();
+  const w = d.words.find(x => x.id === item.id);
+  if (w) {
+    w.lastResult = know ? 'know' : 'confused';
+    if (!know) {
+      w.needsReview = true;   // 다음 날 복습에도 포함, 졸업 보류
+    } else if (item.kind !== 'retry') {
+      w.needsReview = false;
+      // 묶음 기간이 끝난 단어(졸업 보류분)를 알아요 → 바로 졸업
+      if (!d.batches.some(b => b.ids.includes(w.id))) w.status = 'graduated';
+    }
+  }
+  // 헷갈려요 → 그날 끝에 한 번 더
+  if (!know && item.kind !== 'retry') t.queue.push({ id: item.id, kind: 'retry' });
+
+  vcSave(d);
+  if (t.queue.length) vcShowCard(d);
+  else vcStartQuiz();
+}
+
+function vcExitStudy() {
+  vcState.quiz = null;
+  vcState.tab = 'today';
+  vcRender();
+}
+
+/* ── 발음 듣기 ── */
+function vcSpeak(text) {
+  if (!text) return;
+  if (!('speechSynthesis' in window)) { showToast('이 브라우저는 발음 듣기를 지원하지 않아요', '⚠️'); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-US';
+  u.rate = 0.9;
+  const voices = speechSynthesis.getVoices();
+  const v = voices.find(v => /^en[-_]US/i.test(v.lang)) || voices.find(v => /^en/i.test(v.lang));
+  if (v) u.voice = v;
+  speechSynthesis.speak(u);
+}
+
+function vcSpeakCurrent() {
+  vcSpeak(document.getElementById('vc-front-word').textContent);
+}
+
+/* ── 마무리 퀴즈 (뜻 고르기 4지선다) ── */
+function vcStartQuiz() {
+  const d = vcLoad();
+  const t = d.today;
+  if (!t) { vcRender(); return; }
+  const byId = new Map(d.words.map(w => [w.id, w]));
+  const ids = [...t.reviewIds, ...t.newIds].filter(id => byId.has(id));
+  const meanings = new Set(d.words.map(w => w.meaning));
+  if (ids.length === 0 || meanings.size < 2) {
+    // 보기를 만들 수 없으면 퀴즈 없이 마무리
+    t.quizDone = true;
+    vcSave(d);
+    vcExitStudy();
+    return;
+  }
+  vcState.quiz = { ids: vcShuffle(ids), idx: 0, score: 0, picked: null };
+  vcShowView('quiz');
+  vcShowQuizQuestion();
+}
+
+function vcShowQuizQuestion() {
+  const q = vcState.quiz;
+  const d = vcLoad();
+  const byId = new Map(d.words.map(w => [w.id, w]));
+  const w = byId.get(q.ids[q.idx]);
+  if (!w) { vcQuizNext(true); return; }
+  q.picked = null;
+
+  const others = vcShuffle([...new Set(d.words.map(x => x.meaning).filter(m => m !== w.meaning))]).slice(0, 3);
+  const options = vcShuffle([w.meaning, ...others]);
+
+  document.getElementById('vc-quiz-word').textContent = w.word;
+  document.getElementById('vc-quiz-progress').textContent = `${q.idx + 1} / ${q.ids.length}`;
+  document.getElementById('vc-quiz-next').style.display = 'none';
+  const box = document.getElementById('vc-quiz-options');
+  box.innerHTML = options.map((m, i) =>
+    `<button class="vc-quiz-opt" data-correct="${m === w.meaning ? 1 : 0}"><span class="vc-opt-num">${i + 1}</span>${escHtml(m)}</button>`
+  ).join('');
+  box.querySelectorAll('.vc-quiz-opt').forEach(btn => btn.addEventListener('click', () => vcQuizPick(btn, w.id)));
+}
+
+function vcQuizPick(btn, wordId) {
+  const q = vcState.quiz;
+  if (!q || q.picked !== null) return;
+  const correct = btn.dataset.correct === '1';
+  q.picked = correct;
+  document.querySelectorAll('#vc-quiz-options .vc-quiz-opt').forEach(b => {
+    b.disabled = true;
+    if (b.dataset.correct === '1') b.classList.add('correct');
+  });
+  if (correct) {
+    q.score++;
+  } else {
+    btn.classList.add('wrong');
+    // 퀴즈에서 틀린 단어는 헷갈리는 단어로 표시 → 다음 복습에 포함
+    const d = vcLoad();
+    const w = d.words.find(x => x.id === wordId);
+    if (w) {
+      w.lastResult = 'confused';
+      w.needsReview = true;
+      if (w.status === 'graduated') w.status = 'learning';
+      vcSave(d);
+    }
+  }
+  const next = document.getElementById('vc-quiz-next');
+  next.textContent = q.idx + 1 >= q.ids.length ? '결과 보기 →' : '다음 →';
+  next.style.display = '';
+}
+
+function vcQuizNext(skip) {
+  const q = vcState.quiz;
+  if (!q || (q.picked === null && !skip)) return;
+  q.idx++;
+  if (q.idx < q.ids.length) { vcShowQuizQuestion(); return; }
+
+  const d = vcLoad();
+  if (d.today) {
+    d.today.quizDone = true;
+    d.today.quizScore = `${q.score}/${q.ids.length}`;
+    vcSave(d);
+  }
+  if (q.score === q.ids.length) {
+    if (particles) particles.burst(window.innerWidth * 0.5, window.innerHeight * 0.35);
+    showToast(`퀴즈 ${q.score}/${q.ids.length} 만점! 최고예요`, '🏆');
+  } else {
+    showToast(`퀴즈 ${q.score}/${q.ids.length} · 틀린 단어는 내일 다시 복습해요`, '📝');
+  }
+  vcExitStudy();
+}
+
+/* ── 단어장 ── */
+const VC_STATUS_LABEL = { new: '신규', learning: '학습중', graduated: '졸업' };
+
+function vcSetFilter(f) {
+  vcState.filter = f;
+  document.querySelectorAll('.vc-filter').forEach(b => b.classList.toggle('active', b.dataset.filter === f));
+  vcRenderBook();
+}
+
+function vcIsConfused(w) { return w.lastResult === 'confused' || !!w.needsReview; }
+
+function vcRenderBook() {
+  const d = vcLoad();
+  const list = document.getElementById('vc-word-list');
+  if (!list) return;
+  const f = vcState.filter;
+  const words = d.words.filter(w =>
+    f === 'all' ? true :
+    f === 'confused' ? vcIsConfused(w) :
+    w.status === f
+  );
+  document.getElementById('vc-filter-count').textContent = `${words.length}개`;
+
+  if (words.length === 0) {
+    list.innerHTML = `<div class="empty-state-small">${d.words.length ? '이 조건에 맞는 단어가 없어요.' : '아직 단어가 없어요. 직접 추가하거나 CSV로 한꺼번에 넣어보세요! 📂'}</div>`;
+    return;
+  }
+
+  list.innerHTML = words.map(w => {
+    if (vcState.editingId === w.id) {
+      return `
+        <div class="fc-card-row vc-row vc-row-edit">
+          <input class="form-input" id="vc-edit-word" value="${escHtml(w.word)}" placeholder="단어">
+          <input class="form-input" id="vc-edit-meaning" value="${escHtml(w.meaning)}" placeholder="뜻">
+          <input class="form-input" id="vc-edit-pos" value="${escHtml(w.pos || '')}" placeholder="품사">
+          <input class="form-input vc-edit-wide" id="vc-edit-example" value="${escHtml(w.example || '')}" placeholder="예문">
+          <div class="vc-edit-btns">
+            <button class="btn-primary" onclick="vcSaveEdit('${w.id}')">저장</button>
+            <button class="modal-cancel" onclick="vcCancelEdit()">취소</button>
+          </div>
+        </div>`;
+    }
+    const first = w.firstStudied ? w.firstStudied.replace(/^\d+-/, '').replace('-', '/') : '';
+    const result = w.lastResult === 'know' ? '<span class="vc-res know">알아요</span>'
+                 : w.lastResult === 'confused' ? '<span class="vc-res confused">헷갈려요</span>' : '';
     return `
-      <div class="fc-deck-card" onclick="fcOpenDeck('${d.id}')" role="button" tabindex="0"
-           onkeydown="if(event.key==='Enter') fcOpenDeck('${d.id}')">
-        <button class="fc-deck-del" title="묶음 삭제"
-          onclick="event.stopPropagation();fcDeleteDeck('${d.id}')">✕</button>
-        <div class="fc-deck-icon">🃏</div>
-        <div class="fc-deck-name">${escHtml(d.name)}</div>
-        <div class="fc-deck-count">카드 ${d.cards.length}장${d.cards.length ? ` · 외운 카드 ${known}장` : ''}</div>
-        <div class="fc-deck-bar"><div class="fc-deck-bar-fill" style="width:${pct}%"></div></div>
+      <div class="fc-card-row vc-row${vcIsConfused(w) ? ' fc-row-miss' : ''}">
+        <div class="vc-row-main">
+          <div class="vc-row-top">
+            <span class="vc-row-word">${escHtml(w.word)}</span>
+            ${w.pos ? `<span class="vc-row-pos">${escHtml(w.pos)}</span>` : ''}
+            <span class="vc-row-meaning">${escHtml(w.meaning)}</span>
+          </div>
+          ${w.example ? `<div class="vc-row-example">${escHtml(w.example)}</div>` : ''}
+        </div>
+        <div class="vc-row-meta">
+          <span class="vc-status ${w.status}">${VC_STATUS_LABEL[w.status] || ''}</span>
+          ${result}
+          ${first ? `<span class="vc-first" title="첫 학습일">${first}</span>` : ''}
+        </div>
+        <button class="fc-row-del" title="발음 듣기" onclick="vcSpeak(${escHtml(JSON.stringify(w.word))})">🔊</button>
+        <button class="fc-row-del" title="수정" onclick="vcStartEdit('${w.id}')">✎</button>
+        <button class="fc-row-del" title="삭제" onclick="vcDeleteWord('${w.id}')">✕</button>
       </div>`;
   }).join('');
 }
 
-function fcCreateDeck() {
-  const input = document.getElementById('fc-new-deck-input');
-  const name = input.value.trim();
-  if (!name) {
-    input.focus();
-    input.style.borderColor = '#D45C5C';
-    setTimeout(() => input.style.borderColor = '', 1200);
-    return;
-  }
-  const data = fcLoad();
-  const id = genId();
-  data.decks.unshift({ id, name, cards: [], created: Date.now() });
-  fcSave(data);
-  input.value = '';
-  showToast(`「${name}」 묶음을 만들었어요`, '🃏');
-  fcOpenDeck(id);
+function vcNewWord(word, meaning, example, pos) {
+  return {
+    id: genId(),
+    word, meaning,
+    example: example || '',
+    pos: pos || '',
+    firstStudied: null,
+    lastResult: null,
+    status: 'new',
+    needsReview: false,
+    created: Date.now()
+  };
 }
 
-function fcDeleteDeck(id) {
-  const data = fcLoad();
-  const deck = fcGetDeck(data, id);
-  if (!deck) return;
-  if (!confirm(`「${deck.name}」 묶음(카드 ${deck.cards.length}장)을 삭제할까요?`)) return;
-  data.decks = data.decks.filter(d => d.id !== id);
-  fcSave(data);
-  if (fcState.deckId === id) fcState.deckId = null;
-  fcRenderDecks();
+function vcHasWord(d, word) {
+  const k = word.trim().toLowerCase();
+  return d.words.some(w => w.word.trim().toLowerCase() === k);
 }
 
-/* ── 덱 상세 ── */
-function fcOpenDeck(id) {
-  fcState.deckId = id;
-  fcShowView('deck');
-  fcRenderDeckView();
-  setTimeout(() => {
-    const el = document.getElementById('fc-front-input');
-    if (el) el.focus();
-  }, 80);
-}
-
-function fcBackToDecks() {
-  fcState.deckId = null;
-  fcRenderDecks();
-}
-
-function fcRenderDeckView() {
-  const data = fcLoad();
-  const deck = fcGetDeck(data, fcState.deckId);
-  if (!deck) { fcState.deckId = null; fcRenderDecks(); return; }
-
-  document.getElementById('fc-deck-title').textContent = deck.name;
-  const studyBtn = document.getElementById('fc-study-btn');
-  if (studyBtn) studyBtn.disabled = deck.cards.length === 0;
-
-  const list = document.getElementById('fc-card-list');
-  if (!list) return;
-  if (deck.cards.length === 0) {
-    list.innerHTML = `<div class="empty-state-small">아직 카드가 없어요. 직접 추가하거나 AI로 만들어보세요! ✨</div>`;
-    return;
-  }
-  list.innerHTML = deck.cards.map((c, i) => `
-    <div class="fc-card-row${c.miss ? ' fc-row-miss' : ''}">
-      <span class="fc-row-num">${i + 1}</span>
-      <span class="fc-row-front">${escHtml(c.front)}</span>
-      <span class="fc-row-arrow">→</span>
-      <span class="fc-row-back">${escHtml(c.back)}</span>
-      ${c.miss ? '<span class="fc-row-tag">복습 필요</span>' : ''}
-      <button class="fc-row-del" title="카드 삭제" onclick="fcDeleteCard('${c.id}')">✕</button>
-    </div>
-  `).join('');
-}
-
-function fcAddCard() {
-  const frontEl = document.getElementById('fc-front-input');
-  const backEl  = document.getElementById('fc-back-input');
-  const front = frontEl.value.trim();
-  const back  = backEl.value.trim();
-  if (!front || !back) {
-    const target = !front ? frontEl : backEl;
+function vcAddWord() {
+  const wordEl = document.getElementById('vc-word-input');
+  const meanEl = document.getElementById('vc-meaning-input');
+  const posEl  = document.getElementById('vc-pos-input');
+  const exEl   = document.getElementById('vc-example-input');
+  const word = wordEl.value.trim();
+  const meaning = meanEl.value.trim();
+  if (!word || !meaning) {
+    const target = !word ? wordEl : meanEl;
     target.focus();
     target.style.borderColor = '#D45C5C';
     setTimeout(() => target.style.borderColor = '', 1200);
     return;
   }
-  const data = fcLoad();
-  const deck = fcGetDeck(data, fcState.deckId);
-  if (!deck) return;
-  deck.cards.push({ id: genId(), front, back, miss: false });
-  fcSave(data);
-  frontEl.value = '';
-  backEl.value = '';
-  frontEl.focus();
-  fcRenderDeckView();
+  const d = vcLoad();
+  if (vcHasWord(d, word)) { showToast(`「${word}」는 이미 단어장에 있어요`, '⚠️'); return; }
+  d.words.push(vcNewWord(word, meaning, exEl.value.trim(), posEl.value.trim()));
+  vcSave(d);
+  [wordEl, meanEl, posEl, exEl].forEach(el => el.value = '');
+  wordEl.focus();
+  vcRenderBook();
 }
 
-function fcDeleteCard(cardId) {
-  const data = fcLoad();
-  const deck = fcGetDeck(data, fcState.deckId);
-  if (!deck) return;
-  deck.cards = deck.cards.filter(c => c.id !== cardId);
-  fcSave(data);
-  fcRenderDeckView();
+function vcStartEdit(id) {
+  vcState.editingId = id;
+  vcRenderBook();
+  const el = document.getElementById('vc-edit-word');
+  if (el) el.focus();
 }
 
-/* ── AI 카드 생성 ── */
-async function fcGenerateAI() {
-  const topicEl = document.getElementById('fc-ai-topic');
-  const btn     = document.getElementById('fc-ai-btn');
-  const topic = topicEl.value.trim();
-  if (!topic) {
-    topicEl.focus();
-    topicEl.style.borderColor = '#D45C5C';
-    setTimeout(() => topicEl.style.borderColor = '', 1200);
+function vcCancelEdit() {
+  vcState.editingId = null;
+  vcRenderBook();
+}
+
+function vcSaveEdit(id) {
+  const word = document.getElementById('vc-edit-word').value.trim();
+  const meaning = document.getElementById('vc-edit-meaning').value.trim();
+  if (!word || !meaning) { showToast('단어와 뜻은 비워둘 수 없어요', '⚠️'); return; }
+  const d = vcLoad();
+  const w = d.words.find(x => x.id === id);
+  if (!w) return;
+  if (word.toLowerCase() !== w.word.toLowerCase() && vcHasWord(d, word)) {
+    showToast(`「${word}」는 이미 단어장에 있어요`, '⚠️');
     return;
   }
-  const apiKey = localStorage.getItem(OPENAI_KEY_STORAGE);
-  if (!apiKey) { showSettingsModal(); return; }
+  w.word = word;
+  w.meaning = meaning;
+  w.pos = document.getElementById('vc-edit-pos').value.trim();
+  w.example = document.getElementById('vc-edit-example').value.trim();
+  vcSave(d);
+  vcState.editingId = null;
+  vcRenderBook();
+}
 
-  const deckId = fcState.deckId;
-  btn.disabled = true;
-  const origText = btn.textContent;
-  btn.textContent = '✨ 만드는 중...';
+function vcDeleteWord(id) {
+  const d = vcLoad();
+  const w = d.words.find(x => x.id === id);
+  if (!w || !confirm(`「${w.word}」 단어를 삭제할까요?`)) return;
+  d.words = d.words.filter(x => x.id !== id);
+  d.batches.forEach(b => { b.ids = b.ids.filter(x => x !== id); });
+  if (d.today) {
+    d.today.reviewIds = d.today.reviewIds.filter(x => x !== id);
+    d.today.newIds    = d.today.newIds.filter(x => x !== id);
+    d.today.queue     = d.today.queue.filter(q => q.id !== id);
+  }
+  vcSave(d);
+  vcRenderBook();
+}
 
+/* ── CSV 업로드 (열: word, meaning, example, pos) ── */
+function vcParseCSV(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else quoted = false;
+      } else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); rows.push(row);
+      row = []; field = '';
+    } else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows.map(r => r.map(s => s.trim())).filter(r => r.some(s => s));
+}
+
+async function vcImportCSV(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
   try {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4.1-mini',
-        max_tokens: 1200,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content: '당신은 중고등학생용 암기 카드를 만드는 전문가입니다. 항상 유효한 JSON만 반환합니다.'
-          },
-          {
-            role: 'user',
-            content: `주제: "${topic}"\n\n이 주제로 홈스쿨러 학생을 위한 암기 카드 8장을 만들어주세요.\n앞면(front)은 질문/단어, 뒷면(back)은 답/뜻으로, 짧고 명확하게.\n아래 JSON 형식으로만 응답:\n{"cards":[{"front":"...","back":"..."}]}`
-          }
-        ]
-      })
+    const buf = await file.arrayBuffer();
+    let text = new TextDecoder('utf-8').decode(buf);
+    // 엑셀 한글 CSV(CP949) 대응
+    if (text.includes('�')) text = new TextDecoder('euc-kr').decode(buf);
+    text = text.replace(/^﻿/, '');
+
+    const rows = vcParseCSV(text);
+    if (!rows.length) throw new Error('빈 파일이에요');
+
+    let col = { word: 0, meaning: 1, example: 2, pos: 3 };
+    const head = rows[0].map(s => s.toLowerCase());
+    if (head.includes('word')) {
+      col = {
+        word: head.indexOf('word'),
+        meaning: head.indexOf('meaning'),
+        example: head.indexOf('example'),
+        pos: head.indexOf('pos')
+      };
+      rows.shift();
+      if (col.meaning < 0) throw new Error('meaning 열이 없어요');
+    }
+
+    const d = vcLoad();
+    let added = 0, skipped = 0;
+    rows.forEach(r => {
+      const get = k => (col[k] >= 0 ? (r[col[k]] || '') : '').trim();
+      const word = get('word'), meaning = get('meaning');
+      if (!word || !meaning || vcHasWord(d, word)) { skipped++; return; }
+      d.words.push(vcNewWord(word, meaning, get('example'), get('pos')));
+      added++;
     });
-    const json = await resp.json();
-    if (json.error) throw new Error(json.error.message);
-    const parsed = JSON.parse(json.choices[0].message.content);
-    const cards = (parsed.cards || []).filter(c => c.front && c.back);
-    if (!cards.length) throw new Error('카드를 만들지 못했어요. 주제를 조금 바꿔보세요.');
-
-    const data = fcLoad();
-    const deck = fcGetDeck(data, deckId);
-    if (!deck) throw new Error('카드 묶음을 찾을 수 없어요.');
-    cards.forEach(c => deck.cards.push({
-      id: genId(),
-      front: String(c.front).slice(0, 200),
-      back:  String(c.back).slice(0, 300),
-      miss: false
-    }));
-    fcSave(data);
-    topicEl.value = '';
-    showToast(`AI가 카드 ${cards.length}장을 만들었어요`, '✨');
-    if (fcState.deckId === deckId) fcRenderDeckView();
+    vcSave(d);
+    showToast(`단어 ${added}개를 추가했어요${skipped ? ` (건너뜀 ${skipped}개)` : ''}`, '📂');
+    vcRenderBook();
   } catch (err) {
-    showToast('오류: ' + err.message, '⚠️');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = origText;
+    showToast('CSV를 읽지 못했어요: ' + err.message, '⚠️');
   }
 }
 
-/* ── 학습 모드 ── */
-function fcStartStudy(reviewOnly = false) {
-  const data = fcLoad();
-  const deck = fcGetDeck(data, fcState.deckId);
-  if (!deck || deck.cards.length === 0) return;
-
-  let cards = reviewOnly ? deck.cards.filter(c => c.miss) : [...deck.cards];
-  if (cards.length === 0) cards = [...deck.cards];
-
-  // 셔플
-  for (let i = cards.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [cards[i], cards[j]] = [cards[j], cards[i]];
-  }
-
-  fcState.queue = cards;
-  fcState.idx = 0;
-  fcState.flipped = false;
-  fcState.againIds = [];
-  fcState.knowCount = 0;
-
-  fcShowView('study');
-  document.getElementById('fc-study-done').style.display = 'none';
-  document.getElementById('fc-flip-card').style.display = '';
-  document.getElementById('fc-study-actions').style.display = '';
-  fcShowCurrentCard();
+/* ── 예전 암기 카드(hs_flashcards_v1) 가져오기 ── */
+function vcLegacyCards() {
+  try {
+    const data = JSON.parse(localStorage.getItem('hs_flashcards_v1'));
+    if (!data || !Array.isArray(data.decks)) return [];
+    return data.decks.flatMap(dk => dk.cards || []).filter(c => c.front && c.back);
+  } catch (_) { return []; }
 }
 
-function fcShowCurrentCard() {
-  const card = fcState.queue[fcState.idx];
-  if (!card) { fcFinishStudy(); return; }
-
-  fcState.flipped = false;
-  const inner = document.getElementById('fc-flip-inner');
-  inner.classList.remove('flipped');
-  // 카드 전환 시 살짝 등장 애니메이션
-  const stage = document.getElementById('fc-flip-card');
-  stage.classList.remove('fc-enter');
-  void stage.offsetWidth; // reflow로 애니메이션 재시작
-  stage.classList.add('fc-enter');
-
-  document.getElementById('fc-face-front-text').textContent = card.front;
-  document.getElementById('fc-face-back-text').textContent  = card.back;
-  document.getElementById('fc-study-progress').textContent =
-    `${fcState.idx + 1} / ${fcState.queue.length}`;
-
-  fcUpdateAnswerButtons();
-}
-
-function fcFlip() {
-  if (!fcState.queue[fcState.idx]) return;
-  fcState.flipped = !fcState.flipped;
-  document.getElementById('fc-flip-inner').classList.toggle('flipped', fcState.flipped);
-  fcUpdateAnswerButtons();
-}
-
-function fcUpdateAnswerButtons() {
-  document.querySelectorAll('#fc-study-actions button').forEach(b => {
-    b.disabled = !fcState.flipped;
+function vcImportLegacyCards() {
+  const cards = vcLegacyCards();
+  if (!cards.length) return;
+  if (!confirm(`예전 암기 카드 ${cards.length}장을 단어장에 넣을까요?\n(앞면 → 단어, 뒷면 → 뜻)`)) return;
+  const d = vcLoad();
+  let added = 0;
+  cards.forEach(c => {
+    const word = String(c.front).trim(), meaning = String(c.back).trim();
+    if (!word || !meaning || vcHasWord(d, word)) return;
+    d.words.push(vcNewWord(word, meaning, '', ''));
+    added++;
   });
-}
-
-function fcAnswer(know) {
-  const card = fcState.queue[fcState.idx];
-  if (!card || !fcState.flipped) return;
-
-  // 결과 저장 (miss 플래그 영구 반영)
-  const data = fcLoad();
-  const deck = fcGetDeck(data, fcState.deckId);
-  if (deck) {
-    const target = deck.cards.find(c => c.id === card.id);
-    if (target) target.miss = !know;
-    fcSave(data);
-  }
-  if (know) fcState.knowCount++;
-  else fcState.againIds.push(card.id);
-
-  fcState.idx++;
-  if (fcState.idx >= fcState.queue.length) fcFinishStudy();
-  else fcShowCurrentCard();
-}
-
-function fcFinishStudy() {
-  const total = fcState.queue.length;
-  const know  = fcState.knowCount;
-  const again = fcState.againIds.length;
-
-  document.getElementById('fc-flip-card').style.display = 'none';
-  document.getElementById('fc-study-actions').style.display = 'none';
-  const done = document.getElementById('fc-study-done');
-  done.style.display = 'block';
-
-  const title = document.getElementById('fc-done-title');
-  const sub   = document.getElementById('fc-done-sub');
-  if (again === 0) {
-    title.textContent = '전부 외웠어요! 🏆';
-    sub.textContent = `카드 ${total}장을 모두 완벽하게 외웠어요. 최고예요!`;
-    if (particles) particles.burst(window.innerWidth * 0.5, window.innerHeight * 0.35);
-  } else {
-    title.textContent = '학습 완료!';
-    sub.textContent = `${total}장 중 ${know}장을 외웠어요. 남은 ${again}장은 복습으로 정복해봐요!`;
-  }
-
-  // "다시 볼 카드만 복습" 버튼: 복습할 카드가 없으면 숨김
-  const reviewBtn = document.querySelector('#fc-study-done .fc-done-actions .btn-primary');
-  if (reviewBtn) reviewBtn.style.display = again > 0 ? '' : 'none';
-}
-
-function fcExitStudy() {
-  fcShowView('deck');
-  fcRenderDeckView();
+  vcSave(d);
+  showToast(`암기 카드 ${added}장을 단어장에 넣었어요`, '🃏');
+  vcRenderBook();
 }
 
 /* ============================================================

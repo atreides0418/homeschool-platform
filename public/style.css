@@ -4433,3 +4433,203 @@ body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222
 .tt-block:hover .tt-block-del { opacity: 1; }
 .tt-nowline { position: absolute; left: 0; right: 0; height: 2px; background: #D45C5C; z-index: 3; pointer-events: none; }
 .tt-empty-hint { position: absolute; top: 12px; left: 76px; right: 12px; text-align: center; font-size: 12px; color: var(--text-light); pointer-events: none; }
+
+/* ============================================================
+   VOCAB — 영어 단어 (암기 카드 스타일 재사용: .fc-flip-* 등)
+   ============================================================ */
+.vc-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+.vc-tab {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-light);
+  border-radius: 20px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--text-mid);
+  transition: all .15s;
+}
+.vc-tab:hover { border-color: var(--primary-light); }
+.vc-tab.active { background: var(--primary); border-color: var(--primary); color: white; }
+
+/* 오늘 학습 카드 */
+.vc-today-card { max-width: 620px; padding: 26px 28px; }
+.vc-today-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.vc-day-badge {
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-weight: 700;
+  font-size: 15px;
+  border-radius: 20px;
+  padding: 4px 14px;
+}
+.vc-today-date { font-size: 13px; color: var(--text-light); }
+.vc-today-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.vc-chip { font-size: 13px; font-weight: 600; border-radius: 8px; padding: 6px 12px; }
+.vc-chip.review { background: rgba(232,150,60,.12); color: #B06818; }
+.vc-chip.new    { background: rgba(107,175,107,.14); color: #3F7F3F; }
+.vc-today-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.vc-today-progress .vc-progress-bar { flex: 1; margin: 0; }
+.vc-progress-text { font-size: 13px; font-weight: 700; color: var(--primary-dark); font-variant-numeric: tabular-nums; }
+.vc-progress-bar {
+  height: 7px;
+  background: var(--border-light);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: -12px 0 22px;
+}
+.vc-progress-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #6BAF6B, #8FCB8F);
+  transition: width .4s ease;
+}
+.vc-today-action { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.vc-big-btn { width: auto; padding: 13px 28px; font-size: 15px; }
+.vc-today-done { font-size: 15px; color: var(--accent-brown); }
+.vc-again-btn { flex: 0 0 auto; padding: 10px 18px; }
+.vc-today-locked { text-align: center; padding: 10px 0 20px; }
+.vc-today-emoji { font-size: 44px; margin-bottom: 10px; }
+.vc-today-locked h3 { font-size: 19px; color: var(--accent-brown); margin-bottom: 8px; }
+.vc-today-locked p { font-size: 13.5px; color: var(--text-mid); line-height: 1.7; margin-bottom: 18px; }
+.vc-stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  border-top: 1px solid var(--border-light);
+  padding-top: 16px;
+}
+.vc-stat { display: flex; flex-direction: column; align-items: center; font-size: 11.5px; color: var(--text-light); }
+.vc-stat b { font-size: 19px; color: var(--accent-brown); }
+
+/* 학습 카드 */
+.vc-card-kind { font-size: 13px; font-weight: 700; border-radius: 20px; padding: 4px 12px; }
+.vc-card-kind.review { background: rgba(232,150,60,.12); color: #B06818; }
+.vc-card-kind.new    { background: rgba(107,175,107,.14); color: #3F7F3F; }
+.vc-card-kind.retry  { background: #FDEDE0; color: #C0562B; }
+.vc-word-text {
+  font-size: clamp(26px, 5vw, 40px);
+  font-weight: 700;
+  color: var(--text-dark);
+  word-break: break-word;
+  letter-spacing: .3px;
+}
+.vc-pos { font-size: 13px; color: var(--text-light); font-style: italic; min-height: 1em; }
+.vc-example {
+  font-size: 14px;
+  color: var(--text-mid);
+  font-style: italic;
+  line-height: 1.6;
+  max-width: 460px;
+}
+.vc-example:empty { display: none; }
+.vc-speak-row { display: flex; justify-content: center; margin: -10px 0 18px; }
+.vc-speak-btn {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-light);
+  border-radius: 20px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-mid);
+  transition: all .15s;
+}
+.vc-speak-btn:hover { border-color: var(--primary); color: var(--primary-dark); }
+.vc-speak-btn.small { padding: 4px 10px; font-size: 16px; }
+
+/* 퀴즈 */
+.vc-quiz-card { max-width: 560px; margin: 0 auto; padding: 28px; text-align: center; }
+.vc-quiz-q { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 6px; }
+.vc-quiz-ask { font-size: 13px; color: var(--text-light); margin-bottom: 20px; }
+.vc-quiz-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.vc-quiz-opt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 13px 16px;
+  font-size: 15px;
+  font-family: inherit;
+  color: var(--text-dark);
+  transition: all .15s;
+}
+.vc-quiz-opt:hover:not(:disabled) { border-color: var(--primary); background: var(--primary-soft); }
+.vc-quiz-opt:disabled { cursor: default; }
+.vc-quiz-opt.correct { border-color: #6BAF6B; background: rgba(107,175,107,.15); font-weight: 700; }
+.vc-quiz-opt.wrong   { border-color: #D45C5C; background: #FEE2E2; }
+.vc-opt-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-light);
+  border: 1px solid var(--border-light);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.vc-quiz-next { width: auto; padding: 11px 26px; }
+
+/* 단어장 */
+.vc-add-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+.vc-code { background: var(--bg-body); border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+.vc-legacy-btn {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-light);
+  text-decoration: underline;
+}
+.vc-filter-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.vc-filter {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-light);
+  border-radius: 16px;
+  padding: 5px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-mid);
+  transition: all .15s;
+}
+.vc-filter.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-dark); font-weight: 700; }
+.vc-filter-count { margin-left: auto; font-size: 12px; color: var(--text-light); }
+.vc-row-main { flex: 1; min-width: 0; }
+.vc-row-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.vc-row-word { font-size: 15px; font-weight: 700; color: var(--text-dark); word-break: break-word; }
+.vc-row-pos { font-size: 11.5px; color: var(--text-light); font-style: italic; }
+.vc-row-meaning { font-size: 13.5px; color: var(--text-mid); word-break: break-word; }
+.vc-row-example { font-size: 12px; color: var(--text-light); font-style: italic; margin-top: 3px; word-break: break-word; }
+.vc-row-meta { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.vc-status, .vc-res, .vc-first {
+  font-size: 10.5px;
+  border-radius: 4px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.vc-status.new       { background: var(--bg-body); color: var(--text-mid); }
+.vc-status.learning  { background: rgba(232,150,60,.12); color: #B06818; }
+.vc-status.graduated { background: rgba(107,175,107,.15); color: #3F7F3F; }
+.vc-res.know     { color: #3F7F3F; border: 1px solid rgba(107,175,107,.4); }
+.vc-res.confused { color: #C0562B; border: 1px solid rgba(212,92,92,.35); }
+.vc-first { color: var(--text-light); }
+.vc-row-edit { flex-wrap: wrap; }
+.vc-row-edit .form-input { flex: 1 1 140px; margin: 0; }
+.vc-row-edit .vc-edit-wide { flex-basis: 100%; }
+.vc-edit-btns { display: flex; gap: 8px; margin-left: auto; }
+.vc-edit-btns .btn-primary { width: auto; padding: 8px 18px; }
+.vc-edit-btns .modal-cancel { flex: 0 0 auto; padding: 8px 18px; }
+.vc-daily-input { width: 80px; flex: 0 0 auto; margin: 0; text-align: center; }
+
+@media (max-width: 640px) {
+  .vc-stat-row { grid-template-columns: repeat(2, 1fr); row-gap: 12px; }
+  .vc-add-grid { grid-template-columns: 1fr; }
+  .vc-row { flex-wrap: wrap; }
+  .vc-row-meta { width: 100%; }
+}

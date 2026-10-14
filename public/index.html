@@ -40,7 +40,7 @@
           <span class="nav-icon">📖</span><span class="nav-label">학습하기</span>
         </li>
         <li class="nav-item" data-page="cards">
-          <span class="nav-icon">🃏</span><span class="nav-label">암기 카드</span>
+          <span class="nav-icon">🔤</span><span class="nav-label">영어 단어</span>
         </li>
         <li class="nav-item" data-page="stats">
           <span class="nav-icon">📊</span><span class="nav-label">공부 기록</span>
@@ -452,97 +452,115 @@
         </div>
       </section>
 
-      <!-- ===== FLASHCARDS ===== -->
+      <!-- ===== VOCAB (영어 단어) ===== -->
       <section id="page-cards" class="page">
-        <!-- Deck list -->
-        <div id="fc-deck-list-view">
-          <div class="page-header">
-            <h1 class="page-title">🃏 암기 카드</h1>
-            <p class="page-subtitle">외우고 싶은 것들을 카드로 만들고, 뒤집으면서 재미있게 외워요!</p>
-          </div>
-
-          <div class="fc-new-deck-row">
-            <input type="text" id="fc-new-deck-input" class="form-input"
-                   placeholder="새 카드 묶음 이름 (예: 영어 단어, 한국사 연표...)"
-                   onkeypress="if(event.key==='Enter') fcCreateDeck()">
-            <button class="btn-primary fc-new-deck-btn" onclick="fcCreateDeck()">+ 만들기</button>
-          </div>
-
-          <div class="fc-deck-grid" id="fc-deck-grid"></div>
-
-          <div class="empty-state-check" id="fc-empty" style="display:none">
-            <span class="empty-icon">🃏</span>
-            <p>아직 카드 묶음이 없어요.<br>위에서 첫 번째 묶음을 만들어보세요!</p>
-          </div>
+        <div class="page-header">
+          <h1 class="page-title">🔤 영어 단어</h1>
+          <p class="page-subtitle">매일 새 단어를 배우고, 3일 동안 복습하면서 확실하게 외워요!</p>
         </div>
 
-        <!-- Deck detail -->
-        <div id="fc-deck-view" style="display:none">
-          <div class="fc-deck-head">
-            <button class="study-back-btn" onclick="fcBackToDecks()">← 뒤로</button>
-            <h2 class="fc-deck-title" id="fc-deck-title"></h2>
-            <button class="btn-primary fc-study-btn" id="fc-study-btn" onclick="fcStartStudy()">▶ 학습 시작</button>
-          </div>
-
-          <div class="fc-tools-row">
-            <div class="card fc-add-card">
-              <h3 class="card-title">카드 직접 추가</h3>
-              <input type="text" id="fc-front-input" class="form-input" placeholder="앞면 (질문 / 단어)"
-                     onkeypress="if(event.key==='Enter') document.getElementById('fc-back-input').focus()">
-              <input type="text" id="fc-back-input" class="form-input" placeholder="뒷면 (답 / 뜻)"
-                     onkeypress="if(event.key==='Enter') fcAddCard()">
-              <button class="btn-primary" onclick="fcAddCard()">+ 카드 추가</button>
-            </div>
-            <div class="card fc-ai-card">
-              <h3 class="card-title">✨ AI로 카드 만들기</h3>
-              <p class="fc-ai-desc">주제를 적으면 AI가 암기 카드 8장을 자동으로 만들어줘요.</p>
-              <input type="text" id="fc-ai-topic" class="form-input"
-                     placeholder="예: 조선시대 왕 순서, 중1 영단어..."
-                     onkeypress="if(event.key==='Enter') fcGenerateAI()">
-              <button class="btn-action fc-ai-btn" id="fc-ai-btn" onclick="fcGenerateAI()">✨ AI 카드 생성</button>
-            </div>
-          </div>
-
-          <div class="fc-card-list" id="fc-card-list"></div>
+        <div class="vc-tabs" id="vc-tabs">
+          <button class="vc-tab active" data-tab="today" onclick="vcSetTab('today')">📅 오늘 학습</button>
+          <button class="vc-tab" data-tab="book" onclick="vcSetTab('book')">📒 단어장</button>
         </div>
 
-        <!-- Study mode -->
-        <div id="fc-study-view" style="display:none">
+        <!-- 오늘 학습 요약 -->
+        <div id="vc-today-view">
+          <div class="card vc-today-card" id="vc-today-card"></div>
+        </div>
+
+        <!-- 플래시카드 학습 -->
+        <div id="vc-study-view" style="display:none">
           <div class="fc-study-head">
-            <button class="study-back-btn" onclick="fcExitStudy()">✕ 그만하기</button>
-            <span class="fc-study-progress" id="fc-study-progress"></span>
+            <button class="study-back-btn" onclick="vcExitStudy()">✕ 그만하기</button>
+            <span class="vc-card-kind" id="vc-card-kind"></span>
+            <span class="fc-study-progress" id="vc-study-progress"></span>
           </div>
+          <div class="vc-progress-bar"><div class="vc-progress-fill" id="vc-progress-fill"></div></div>
 
           <div class="fc-flip-stage">
-            <div class="fc-flip-card" id="fc-flip-card" onclick="fcFlip()">
-              <div class="fc-flip-inner" id="fc-flip-inner">
+            <div class="fc-flip-card" id="vc-flip-card" onclick="vcFlip()">
+              <div class="fc-flip-inner" id="vc-flip-inner">
                 <div class="fc-face fc-face-front">
-                  <span class="fc-face-label">질문</span>
-                  <div class="fc-face-text" id="fc-face-front-text"></div>
-                  <span class="fc-face-hint">카드를 눌러서 뒤집기</span>
+                  <span class="fc-face-label">WORD</span>
+                  <div class="vc-word-text" id="vc-front-word"></div>
+                  <span class="vc-pos" id="vc-front-pos"></span>
+                  <span class="fc-face-hint">카드를 눌러서 뜻 확인</span>
                 </div>
                 <div class="fc-face fc-face-back">
-                  <span class="fc-face-label">답</span>
-                  <div class="fc-face-text" id="fc-face-back-text"></div>
+                  <span class="fc-face-label">뜻</span>
+                  <div class="fc-face-text" id="vc-back-meaning"></div>
+                  <div class="vc-example" id="vc-back-example"></div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="fc-study-actions" id="fc-study-actions">
-            <button class="fc-btn-again" onclick="fcAnswer(false)">🔁 다시 볼래요</button>
-            <button class="fc-btn-know" onclick="fcAnswer(true)">⭕ 외웠어요!</button>
+          <div class="vc-speak-row">
+            <button class="vc-speak-btn" onclick="vcSpeakCurrent()" title="발음 듣기">🔊 발음 듣기</button>
           </div>
 
-          <div class="fc-study-done" id="fc-study-done" style="display:none">
-            <div class="fc-done-emoji">🎉</div>
-            <h3 id="fc-done-title">학습 완료!</h3>
-            <p id="fc-done-sub"></p>
-            <div class="fc-done-actions">
-              <button class="btn-primary" onclick="fcStartStudy(true)">🔁 다시 볼 카드만 복습</button>
-              <button class="modal-cancel" onclick="fcExitStudy()">목록으로</button>
+          <div class="fc-study-actions" id="vc-study-actions">
+            <button class="fc-btn-again" onclick="vcAnswer(false)">🤔 헷갈려요</button>
+            <button class="fc-btn-know" onclick="vcAnswer(true)">⭕ 알아요</button>
+          </div>
+        </div>
+
+        <!-- 마무리 퀴즈 -->
+        <div id="vc-quiz-view" style="display:none">
+          <div class="fc-study-head">
+            <button class="study-back-btn" onclick="vcExitStudy()">✕ 그만하기</button>
+            <span class="vc-card-kind">📝 마무리 퀴즈</span>
+            <span class="fc-study-progress" id="vc-quiz-progress"></span>
+          </div>
+          <div class="card vc-quiz-card">
+            <div class="vc-quiz-q">
+              <span class="vc-word-text" id="vc-quiz-word"></span>
+              <button class="vc-speak-btn small" onclick="vcSpeak(document.getElementById('vc-quiz-word').textContent)" title="발음 듣기">🔊</button>
+            </div>
+            <p class="vc-quiz-ask">알맞은 뜻을 골라보세요</p>
+            <div class="vc-quiz-options" id="vc-quiz-options"></div>
+            <button class="btn-primary vc-quiz-next" id="vc-quiz-next" style="display:none" onclick="vcQuizNext()">다음 →</button>
+          </div>
+        </div>
+
+        <!-- 단어장 -->
+        <div id="vc-book-view" style="display:none">
+          <div class="fc-tools-row">
+            <div class="card fc-add-card">
+              <h3 class="card-title">단어 직접 추가</h3>
+              <div class="vc-add-grid">
+                <input type="text" id="vc-word-input" class="form-input" placeholder="단어 (예: apple)"
+                       onkeypress="if(event.key==='Enter') document.getElementById('vc-meaning-input').focus()">
+                <input type="text" id="vc-meaning-input" class="form-input" placeholder="뜻 (예: 사과)"
+                       onkeypress="if(event.key==='Enter') vcAddWord()">
+                <input type="text" id="vc-pos-input" class="form-input" placeholder="품사 (선택, 예: n.)"
+                       onkeypress="if(event.key==='Enter') vcAddWord()">
+                <input type="text" id="vc-example-input" class="form-input" placeholder="예문 (선택)"
+                       onkeypress="if(event.key==='Enter') vcAddWord()">
+              </div>
+              <button class="btn-primary" onclick="vcAddWord()">+ 단어 추가</button>
+            </div>
+            <div class="card fc-ai-card">
+              <h3 class="card-title">📂 CSV로 한꺼번에 추가</h3>
+              <p class="fc-ai-desc">엑셀에서 아래 열 이름으로 만든 뒤 CSV로 저장해서 올려요.<br>
+                <code class="vc-code">word, meaning, example, pos</code><br>
+                example, pos는 비워도 돼요. 이미 있는 단어는 건너뛰어요.</p>
+              <input type="file" id="vc-csv-input" accept=".csv,text/csv" style="display:none" onchange="vcImportCSV(this)">
+              <button class="btn-action fc-ai-btn" onclick="document.getElementById('vc-csv-input').click()">📂 CSV 파일 선택</button>
+              <button class="vc-legacy-btn" id="vc-legacy-btn" style="display:none" onclick="vcImportLegacyCards()">🃏 예전 암기 카드 가져오기</button>
             </div>
           </div>
+
+          <div class="vc-filter-row" id="vc-filter-row">
+            <button class="vc-filter active" data-filter="all" onclick="vcSetFilter('all')">전체</button>
+            <button class="vc-filter" data-filter="learning" onclick="vcSetFilter('learning')">학습중</button>
+            <button class="vc-filter" data-filter="graduated" onclick="vcSetFilter('graduated')">졸업</button>
+            <button class="vc-filter" data-filter="confused" onclick="vcSetFilter('confused')">헷갈리는 단어</button>
+            <span class="vc-filter-count" id="vc-filter-count"></span>
+          </div>
+
+          <div class="fc-card-list" id="vc-word-list"></div>
         </div>
       </section>
 
@@ -862,6 +880,17 @@
             <input type="checkbox" id="period-toggle-input" onchange="togglePeriodSetting(this.checked)">
             <span class="toggle-switch-track"></span>
           </span>
+        </label>
+      </div>
+
+      <div class="settings-divider"></div>
+
+      <div class="settings-section">
+        <div class="settings-section-label">🔤 영어 단어</div>
+        <label class="settings-toggle-row">
+          <span>하루에 새로 배울 단어 개수 (기본 15개)</span>
+          <input type="number" id="vc-daily-input" class="form-input vc-daily-input" min="1" max="100" value="15"
+                 onchange="vcSetDaily(this.value)">
         </label>
       </div>
 
