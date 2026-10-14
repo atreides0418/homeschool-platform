@@ -5712,6 +5712,9 @@ function vcInit() {
       else if (e.key === 'ArrowLeft'  && vcState.flipped) vcAnswer(false);
       else if (e.key === 'ArrowRight' && vcState.flipped) vcAnswer(true);
       else if (e.key === 's' || e.key === 'S') vcSpeakCurrent();
+    } else if (document.getElementById('vc-tquiz-view').style.display !== 'none') {
+      // 답을 낸 뒤엔 입력칸이 잠기므로 Enter는 여기서 받음
+      if (vcState.tquiz && vcState.tquiz.answered && e.key === 'Enter') { e.preventDefault(); vcTypeNext(); }
     } else if (document.getElementById('vc-quiz-view').style.display !== 'none') {
       const q = vcState.quiz;
       if (!q) return;
@@ -5788,10 +5791,10 @@ function vcTodayCounts(t) {
 
 /* ── 뷰 전환 ── */
 function vcShowView(view) {
-  ['today', 'book', 'study', 'quiz'].forEach(v => {
+  ['today', 'book', 'study', 'quiz', 'tquiz'].forEach(v => {
     document.getElementById(`vc-${v}-view`).style.display = v === view ? 'block' : 'none';
   });
-  document.getElementById('vc-tabs').style.display = (view === 'study' || view === 'quiz') ? 'none' : '';
+  document.getElementById('vc-tabs').style.display = (view === 'today' || view === 'book') ? '' : 'none';
   document.querySelectorAll('.vc-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === view));
   // 단어장은 AI 도우미 패널까지 들어가도록 넓게
   document.getElementById('page-cards').classList.toggle('vc-wide', view === 'book');
@@ -5852,12 +5855,19 @@ function vcRenderToday() {
   let action;
   if (!finished) {
     action = `<button class="btn-primary vc-big-btn" onclick="vcStartStudy()">${done === 0 && t.queue.every(q => q.kind !== 'retry') ? '▶ 학습 시작' : '▶ 이어서 하기'}</button>`;
-  } else if (!t.quizDone) {
-    action = `<button class="btn-primary vc-big-btn" onclick="vcStartQuiz()">📝 마무리 퀴즈 풀기</button>`;
   } else {
+    // 학습 끝 → 고르기(4지선다) / 쓰기 퀴즈. 안 푼 퀴즈를 큰 버튼으로
+    const scores = [
+      t.quizScore ? `고르기 <b>${escHtml(t.quizScore)}</b>` : '',
+      t.typeScore ? `쓰기 <b>${escHtml(t.typeScore)}</b>` : ''
+    ].filter(Boolean).join(' · ');
+    const quizBtn = (done, primaryLabel, againLabel, fn) => done
+      ? `<button class="modal-cancel vc-again-btn" onclick="${fn}()">${againLabel}</button>`
+      : `<button class="btn-primary vc-big-btn" onclick="${fn}()">${primaryLabel}</button>`;
     action = `
-      <div class="vc-today-done">🎉 오늘 학습 끝! 마무리 퀴즈 <b>${escHtml(t.quizScore || '')}</b></div>
-      <button class="modal-cancel vc-again-btn" onclick="vcStartQuiz()">📝 퀴즈 다시 풀기</button>`;
+      ${t.quizDone || t.typeDone ? `<div class="vc-today-done">🎉 오늘 학습 끝!${scores ? ' ' + scores : ''}</div>` : ''}
+      ${quizBtn(t.quizDone, '📝 마무리 퀴즈 풀기', '📝 고르기 다시', 'vcStartQuiz')}
+      ${quizBtn(t.typeDone, '⌨️ 쓰기 퀴즈 도전', '⌨️ 쓰기 다시', 'vcStartTypeQuiz')}`;
   }
 
   box.innerHTML = `
@@ -5959,6 +5969,7 @@ function vcAnswer(know) {
 
 function vcExitStudy() {
   vcState.quiz = null;
+  vcState.tquiz = null;
   vcState.tab = 'today';
   vcRender();
 }
@@ -6067,6 +6078,133 @@ function vcQuizNext(skip) {
     showToast(`퀴즈 ${q.score}/${q.ids.length} 만점! 최고예요`, '🏆');
   } else {
     showToast(`퀴즈 ${q.score}/${q.ids.length} · 틀린 단어는 내일 다시 복습해요`, '📝');
+  }
+  vcExitStudy();
+}
+
+/* ── 쓰기 퀴즈 (한글 뜻 보고 영어 직접 입력) ── */
+function vcNormAnswer(s) {
+  return String(s).toLowerCase().replace(/[’']/g, "'").replace(/\s+/g, ' ').trim().replace(/[.!?,;:]+$/, '').trim();
+}
+
+function vcStartTypeQuiz() {
+  const d = vcLoad();
+  const t = d.today;
+  if (!t) { vcRender(); return; }
+  const byId = new Map(d.words.map(w => [w.id, w]));
+  const ids = [...t.reviewIds, ...t.newIds].filter(id => byId.has(id));
+  if (!ids.length) { vcRender(); return; }
+  vcState.tquiz = { ids: vcShuffle(ids), idx: 0, score: 0, answered: false, hint: 0 };
+  vcShowView('tquiz');
+  vcShowTypeQuestion();
+}
+
+function vcShowTypeQuestion() {
+  const q = vcState.tquiz;
+  const w = vcLoad().words.find(x => x.id === q.ids[q.idx]);
+  if (!w) { q.answered = true; vcTypeNext(); return; }
+  q.answered = false;
+  q.hint = 0;
+
+  document.getElementById('vc-tquiz-progress').textContent = `${q.idx + 1} / ${q.ids.length}`;
+  document.getElementById('vc-tquiz-meaning').textContent = w.meaning;
+  document.getElementById('vc-tquiz-pos').textContent = w.pos || '';
+
+  // 예문 힌트: 단어 자리를 빈칸으로 (예문에 단어가 그대로 있을 때만)
+  const exEl = document.getElementById('vc-tquiz-example');
+  const re = new RegExp(w.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig');
+  exEl.textContent = w.example && re.test(w.example) ? w.example.replace(re, '_____') : '';
+
+  document.getElementById('vc-tquiz-hint').textContent = '';
+  document.getElementById('vc-tquiz-feedback').innerHTML = '';
+  document.getElementById('vc-tquiz-hint-btn').disabled = false;
+  document.getElementById('vc-tquiz-btns').style.display = '';
+  document.getElementById('vc-tquiz-next').style.display = 'none';
+  const input = document.getElementById('vc-tquiz-input');
+  input.value = '';
+  input.disabled = false;
+  input.className = 'form-input vc-tquiz-input';
+  input.focus();
+}
+
+function vcTypeKeydown(e) {
+  if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); vcTypeSubmit(); }
+}
+
+function vcTypeHint() {
+  const q = vcState.tquiz;
+  if (!q || q.answered) return;
+  const w = vcLoad().words.find(x => x.id === q.ids[q.idx]);
+  if (!w) return;
+  // 누를 때마다 한 글자씩 더 공개 (단어 길이 - 1 까지)
+  const letters = [...w.word];
+  const maxReveal = Math.max(1, letters.filter(c => c !== ' ').length - 1);
+  q.hint = Math.min(q.hint + 1, maxReveal);
+  let shown = 0;
+  document.getElementById('vc-tquiz-hint').textContent = letters.map(c => {
+    if (c === ' ') return '  ';
+    return shown++ < q.hint ? c : '_';
+  }).join(' ');
+  if (q.hint >= maxReveal) document.getElementById('vc-tquiz-hint-btn').disabled = true;
+  document.getElementById('vc-tquiz-input').focus();
+}
+
+function vcTypeSubmit(giveUp) {
+  const q = vcState.tquiz;
+  if (!q || q.answered) return;
+  const input = document.getElementById('vc-tquiz-input');
+  const typed = input.value;
+  if (!giveUp && !typed.trim()) { input.focus(); return; }
+
+  const d = vcLoad();
+  const w = d.words.find(x => x.id === q.ids[q.idx]);
+  if (!w) return;
+  // 뜻이 똑같은 다른 단어를 써도 정답 처리
+  const accepted = d.words.filter(x => x.meaning === w.meaning).map(x => vcNormAnswer(x.word));
+  const correct = !giveUp && accepted.includes(vcNormAnswer(typed));
+
+  q.answered = true;
+  input.disabled = true;
+  input.classList.add(correct ? 'correct' : 'wrong');
+  document.getElementById('vc-tquiz-btns').style.display = 'none';
+
+  const fb = document.getElementById('vc-tquiz-feedback');
+  if (correct) {
+    q.score++;
+    fb.innerHTML = `<span class="vc-tquiz-ok">⭕ 정답! <b>${escHtml(w.word)}</b></span>`;
+  } else {
+    fb.innerHTML = `<span class="vc-tquiz-no">❌ 정답은 <b>${escHtml(w.word)}</b></span>` +
+      (typed.trim() ? `<span class="vc-tquiz-mine">내가 쓴 답: ${escHtml(typed.trim())}</span>` : '');
+    // 틀린 단어는 헷갈리는 단어로 → 다음 복습에 포함
+    w.lastResult = 'confused';
+    w.needsReview = true;
+    if (w.status === 'graduated') w.status = 'learning';
+    vcSave(d);
+  }
+  vcSpeak(w.word);
+
+  const next = document.getElementById('vc-tquiz-next');
+  next.textContent = q.idx + 1 >= q.ids.length ? '결과 보기 →' : '다음 →';
+  next.style.display = '';
+}
+
+function vcTypeNext() {
+  const q = vcState.tquiz;
+  if (!q || !q.answered) return;
+  q.idx++;
+  if (q.idx < q.ids.length) { vcShowTypeQuestion(); return; }
+
+  const d = vcLoad();
+  if (d.today) {
+    d.today.typeDone = true;
+    d.today.typeScore = `${q.score}/${q.ids.length}`;
+    vcSave(d);
+  }
+  if (q.score === q.ids.length) {
+    if (particles) particles.burst(window.innerWidth * 0.5, window.innerHeight * 0.35);
+    showToast(`쓰기 퀴즈 ${q.score}/${q.ids.length} 만점! 스펠링 완벽해요`, '🏆');
+  } else {
+    showToast(`쓰기 퀴즈 ${q.score}/${q.ids.length} · 틀린 단어는 내일 다시 복습해요`, '⌨️');
   }
   vcExitStudy();
 }

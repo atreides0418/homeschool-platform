@@ -4273,7 +4273,16 @@ body.moonlit-theme .checklist-item.done { background: rgba(8,14,32,0.35); }
 /* ============================================================
    PRIORITY MATRIX
    ============================================================ */
-.pm-form { display: flex; flex-direction: column; gap: 14px; margin-bottom: 22px; }
+#page-priority {
+  padding: 36px 40px 48px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.pm-form { display: flex; flex-direction: column; gap: 14px; margin-bottom: 26px; }
+.pm-input-row { display: flex; gap: 10px; }
+.pm-input-row .form-input { flex: 1; min-width: 0; }
+.pm-add-btn { width: auto; white-space: nowrap; flex-shrink: 0; padding: 0 22px; }
 .pm-questions { display: flex; flex-wrap: wrap; gap: 12px 28px; }
 .pm-q { display: flex; align-items: center; gap: 8px; }
 .pm-q-label { font-weight: 700; color: var(--accent-brown); margin-right: 4px; }
@@ -4288,45 +4297,66 @@ body.moonlit-theme .checklist-item.done { background: rgba(8,14,32,0.35); }
 }
 .pm-toggle:hover { border-color: var(--primary-light); }
 .pm-toggle.active { background: var(--primary); border-color: var(--primary); color: #fff; }
-.pm-add-btn { align-self: flex-start; }
 
-.pm-axis-top {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
-  text-align: center; font-size: 13px; color: var(--text-light); margin-bottom: 6px;
+/* ── 2×2 표: 위 = 급해/안 급해, 왼쪽 = 중요해/안 중요해 ── */
+.pm-matrix {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto 1fr 1fr;
+  gap: 12px;
 }
-.pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.pm-quad {
-  --pm-tint: #FBE3D6;
+.pm-col-head {
+  text-align: center;
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--accent-brown);
+  padding: 8px 0;
   background: var(--bg-card);
   border: 1.5px solid var(--border-light);
-  border-top: 5px solid var(--pm-accent);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  padding: 16px;
-  min-height: 210px;
-  transition: background .15s, border-color .15s;
+  border-radius: var(--radius-sm);
 }
-.pm-quad[data-quad="q1"] { --pm-accent: #D45C5C; --pm-tint: #FBE6E2; }
-.pm-quad[data-quad="q2"] { --pm-accent: #6BAF6B; --pm-tint: #E6F3E3; }
-.pm-quad[data-quad="q3"] { --pm-accent: #E8963C; --pm-tint: #FCEBD6; }
-.pm-quad[data-quad="q4"] { --pm-accent: #A88C78; --pm-tint: #F2EAE1; }
-.pm-quad.drag-over { background: var(--pm-tint); border-color: var(--pm-accent); }
+.pm-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+.pm-row-head span {
+  text-align: center;
+  font-weight: 700;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--accent-brown);
+}
 
-.pm-quad-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.pm-quad-icon { font-size: 24px; }
-.pm-quad-title { font-weight: 700; color: var(--text-dark); line-height: 1.3; }
-.pm-quad-sub { font-size: 12px; color: var(--text-light); }
-.pm-quad-count {
-  margin-left: auto; min-width: 26px; height: 26px; padding: 0 8px;
-  border-radius: 13px; background: var(--pm-tint); color: var(--pm-accent);
-  font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center;
+.pm-quad {
+  /* 테마 카드색에 칸 색을 살짝 섞음 → 어두운 테마에서도 자연스럽게 */
+  background: color-mix(in srgb, var(--pm-accent) 10%, var(--bg-card));
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 14px;
+  min-height: 190px;
+  transition: border-color .15s, box-shadow .15s;
 }
+.pm-quad[data-quad="q1"] { --pm-accent: #D45C5C; }
+.pm-quad[data-quad="q2"] { --pm-accent: #6BAF6B; }
+.pm-quad[data-quad="q3"] { --pm-accent: #E8963C; }
+.pm-quad[data-quad="q4"] { --pm-accent: #A88C78; }
+.pm-quad.drag-over { border-color: var(--pm-accent); border-style: dashed; }
+
+.pm-quad-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.pm-quad-icon { font-size: 18px; }
+.pm-quad-title { font-weight: 700; font-size: 15px; color: var(--text-dark); line-height: 1.3; }
+.pm-quad-sub { display: none; font-size: 12px; color: var(--text-light); }
+.pm-quad-count { margin-left: auto; font-size: 13px; font-weight: 700; color: var(--pm-accent); }
 
 .pm-list { display: flex; flex-direction: column; gap: 6px; }
 .pm-item {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-radius: var(--radius-sm);
-  background: var(--bg-body); border: 1px solid var(--border-light);
+  background: var(--bg-card);
   cursor: grab;
 }
 .pm-item.dragging { opacity: .4; }
@@ -4337,18 +4367,26 @@ body.moonlit-theme .checklist-item.done { background: rgba(8,14,32,0.35); }
   color: #fff; font-size: 12px; line-height: 1;
 }
 .pm-item.done .pm-check { background: var(--pm-accent); }
-.pm-text { flex: 1; min-width: 0; word-break: break-all; }
+.pm-text { flex: 1; min-width: 0; word-break: break-all; font-size: 14px; }
 .pm-icon-btn {
   flex-shrink: 0; border: none; background: none; font-size: 13px;
-  color: var(--text-light); padding: 2px 4px; border-radius: 6px; opacity: .6;
+  color: var(--text-light); padding: 2px 4px; border-radius: 6px;
+  opacity: 0; transition: opacity .15s;
 }
+/* 📋 ✕ 버튼은 마우스를 올렸을 때만 (터치 기기는 항상 표시) */
+.pm-item:hover .pm-icon-btn,
+.pm-icon-btn:focus-visible { opacity: .7; }
 .pm-icon-btn:hover { opacity: 1; background: var(--bg-hover); }
-.pm-empty { font-size: 13px; color: var(--text-light); text-align: center; padding: 18px 0; }
-.pm-hint { margin-top: 14px; font-size: 13px; color: var(--text-light); text-align: center; }
+@media (hover: none) { .pm-icon-btn { opacity: .6; } }
+.pm-empty { font-size: 13px; color: var(--text-light); text-align: center; padding: 22px 0; opacity: .8; }
+.pm-hint { margin-top: 16px; font-size: 13px; color: var(--text-light); text-align: center; }
 
 @media (max-width: 768px) {
-  .pm-grid { grid-template-columns: 1fr; }
-  .pm-axis-top { display: none; }
+  #page-priority { padding: 24px 16px 36px; }
+  .pm-matrix { grid-template-columns: 1fr; grid-template-rows: none; }
+  .pm-corner, .pm-col-head, .pm-row-head { display: none; }
+  .pm-quad { min-height: 0; }
+  .pm-quad-sub { display: block; }
 }
 
 /* ============================================================
@@ -4721,3 +4759,40 @@ body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222
   .vc-book-layout { grid-template-columns: 1fr; }
   .vc-ai-panel { position: static; height: 460px; order: -1; }
 }
+
+/* ── 쓰기 퀴즈 ── */
+.vc-tquiz-meaning {
+  font-size: clamp(24px, 4.4vw, 34px);
+  font-weight: 700;
+  color: var(--text-dark);
+  word-break: keep-all;
+  margin-bottom: 4px;
+}
+.vc-tquiz-example { margin: 10px auto 0; }
+.vc-tquiz-hint {
+  font-family: 'Courier New', monospace;
+  font-size: 20px;
+  letter-spacing: 2px;
+  color: var(--primary-dark);
+  min-height: 28px;
+  white-space: pre;
+  margin-bottom: 8px;
+}
+.vc-tquiz-input {
+  max-width: 360px;
+  margin: 0 auto 12px;
+  display: block;
+  text-align: center;
+  font-size: 20px;
+  padding: 12px 16px;
+}
+.vc-tquiz-input.correct { border-color: #6BAF6B; background: rgba(107,175,107,.12); }
+.vc-tquiz-input.wrong   { border-color: #D45C5C; background: #FEE2E2; }
+.vc-tquiz-feedback { min-height: 24px; margin-bottom: 14px; font-size: 15px; display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.vc-tquiz-ok { color: #3F7F3F; }
+.vc-tquiz-no { color: #C0562B; }
+.vc-tquiz-mine { font-size: 12.5px; color: var(--text-light); }
+.vc-tquiz-btns { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.vc-tquiz-btns .btn-primary { width: auto; padding: 11px 28px; }
+.vc-tquiz-btns .modal-cancel { flex: 0 0 auto; padding: 11px 18px; }
+.vc-tquiz-btns .modal-cancel:disabled { opacity: .45; cursor: not-allowed; }

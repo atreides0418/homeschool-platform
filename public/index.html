@@ -385,8 +385,11 @@
         </div>
 
         <div class="card pm-form">
-          <input type="text" id="pm-input" class="form-input" placeholder="할 일을 적어주세요 (예: 수학 숙제, 책 반납...)"
-                 onkeypress="if(event.key==='Enter') addPriorityItem()">
+          <div class="pm-input-row">
+            <input type="text" id="pm-input" class="form-input" placeholder="할 일을 적어주세요 (예: 수학 숙제, 책 반납...)"
+                   onkeypress="if(event.key==='Enter') addPriorityItem()">
+            <button class="btn-primary pm-add-btn" onclick="addPriorityItem()">+ 칸에 넣기</button>
+          </div>
           <div class="pm-questions">
             <div class="pm-q">
               <span class="pm-q-label">중요한가?</span>
@@ -399,13 +402,19 @@
               <button class="pm-toggle" data-q="urgent" data-v="0" onclick="setPmAnswer('urgent',0)">안 급해</button>
             </div>
           </div>
-          <button class="btn-primary pm-add-btn" onclick="addPriorityItem()">+ 칸에 넣기</button>
         </div>
 
-        <div class="pm-axis-top"><span>급해</span><span>안 급해</span></div>
-        <div class="pm-grid">
+        <!-- 위: 급해 / 안 급해 · 왼쪽: 중요해 / 안 중요해 -->
+        <div class="pm-matrix">
+          <div class="pm-corner"></div>
+          <div class="pm-col-head">⏰ 급해</div>
+          <div class="pm-col-head">🐢 안 급해</div>
+
+          <div class="pm-row-head"><span>⭐<br>중요해</span></div>
           <div class="pm-quad" data-quad="q1"></div>
           <div class="pm-quad" data-quad="q2"></div>
+
+          <div class="pm-row-head"><span>안<br>중요해</span></div>
           <div class="pm-quad" data-quad="q3"></div>
           <div class="pm-quad" data-quad="q4"></div>
         </div>
@@ -521,6 +530,32 @@
             <p class="vc-quiz-ask">알맞은 뜻을 골라보세요</p>
             <div class="vc-quiz-options" id="vc-quiz-options"></div>
             <button class="btn-primary vc-quiz-next" id="vc-quiz-next" style="display:none" onclick="vcQuizNext()">다음 →</button>
+          </div>
+        </div>
+
+        <!-- 쓰기 퀴즈 -->
+        <div id="vc-tquiz-view" style="display:none">
+          <div class="fc-study-head">
+            <button class="study-back-btn" onclick="vcExitStudy()">✕ 그만하기</button>
+            <span class="vc-card-kind">⌨️ 쓰기 퀴즈</span>
+            <span class="fc-study-progress" id="vc-tquiz-progress"></span>
+          </div>
+          <div class="card vc-quiz-card">
+            <div class="vc-tquiz-meaning" id="vc-tquiz-meaning"></div>
+            <span class="vc-pos" id="vc-tquiz-pos"></span>
+            <div class="vc-example vc-tquiz-example" id="vc-tquiz-example"></div>
+            <p class="vc-quiz-ask">영어 단어를 직접 써보세요</p>
+            <div class="vc-tquiz-hint" id="vc-tquiz-hint"></div>
+            <input type="text" id="vc-tquiz-input" class="form-input vc-tquiz-input" placeholder="여기에 영어로 입력"
+                   autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"
+                   onkeydown="vcTypeKeydown(event)">
+            <div class="vc-tquiz-feedback" id="vc-tquiz-feedback"></div>
+            <div class="vc-tquiz-btns" id="vc-tquiz-btns">
+              <button class="modal-cancel" id="vc-tquiz-hint-btn" onclick="vcTypeHint()">💡 힌트</button>
+              <button class="modal-cancel" onclick="vcTypeSubmit(true)">🤷 모르겠어요</button>
+              <button class="btn-primary" onclick="vcTypeSubmit()">확인</button>
+            </div>
+            <button class="btn-primary vc-quiz-next" id="vc-tquiz-next" style="display:none" onclick="vcTypeNext()">다음 →</button>
           </div>
         </div>
 
