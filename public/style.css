@@ -4633,3 +4633,91 @@ body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222
   .vc-row { flex-wrap: wrap; }
   .vc-row-meta { width: 100%; }
 }
+
+/* ── 단어장 + AI 단어 도우미 패널 ── */
+#page-cards.vc-wide { max-width: 1280px; }
+.vc-book-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: start;
+}
+.vc-ai-panel {
+  position: sticky;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 80px);
+  max-height: 760px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.vc-ai-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: linear-gradient(150deg, #FFF6E8, var(--bg-card));
+  border-bottom: 1px solid var(--border-light);
+}
+.vc-ai-icon { font-size: 22px; }
+.vc-ai-title { font-size: 15px; font-weight: 700; color: var(--accent-brown); }
+.vc-ai-sub { font-size: 11.5px; color: var(--text-light); }
+.vc-ai-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-body);
+}
+.vc-ai-panel .study-msg { gap: 8px; }
+.vc-ai-panel .study-msg-avatar { width: 30px; height: 30px; font-size: 15px; }
+.vc-ai-panel .study-msg-bubble { max-width: 86%; font-size: 13px; line-height: 1.65; padding: 10px 13px; }
+.vc-ai-ex {
+  display: inline-block;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  border-radius: 6px;
+  padding: 0 7px;
+  margin: 2px 0;
+  font-size: 12px;
+}
+.vc-ai-added-title { margin-top: 6px; font-weight: 700; color: #3F7F3F; }
+.vc-ai-added { list-style: none; padding: 0; margin: 4px 0 6px; }
+.vc-ai-added li { padding: 3px 0; border-bottom: 1px dashed var(--border-light); }
+.vc-ai-added li:last-child { border-bottom: none; }
+.vc-ai-added i { color: var(--text-light); font-size: 11.5px; }
+.vc-ai-dup { margin-top: 6px; font-size: 12px; color: var(--text-light); }
+.vc-ai-undo {
+  background: none;
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-family: inherit;
+  color: var(--text-mid);
+  transition: all .15s;
+}
+.vc-ai-undo:hover:not(:disabled) { border-color: #D45C5C; color: #D45C5C; }
+.vc-ai-undo:disabled { opacity: .6; cursor: default; }
+.vc-ai-input-area {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-card);
+}
+.vc-ai-input-area .study-chat-input { padding: 10px 14px; font-size: 13.5px; }
+.vc-ai-input-area .study-send-btn { width: 40px; height: 40px; font-size: 18px; }
+
+@media (max-width: 1100px) {
+  .vc-book-layout { grid-template-columns: 1fr; }
+  .vc-ai-panel { position: static; height: 460px; order: -1; }
+}

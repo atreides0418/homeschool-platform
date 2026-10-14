@@ -5793,6 +5793,9 @@ function vcShowView(view) {
   });
   document.getElementById('vc-tabs').style.display = (view === 'study' || view === 'quiz') ? 'none' : '';
   document.querySelectorAll('.vc-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === view));
+  // 단어장은 AI 도우미 패널까지 들어가도록 넓게
+  document.getElementById('page-cards').classList.toggle('vc-wide', view === 'book');
+  if (view === 'book') vcAiGreet();
 }
 
 function vcSetTab(tab) {
@@ -6314,6 +6317,145 @@ function vcImportLegacyCards() {
   });
   vcSave(d);
   showToast(`암기 카드 ${added}장을 단어장에 넣었어요`, '🃏');
+  vcRenderBook();
+}
+
+/* ── AI 단어 도우미 (영어/한글 아무거나 → 뜻 찾아서 자동 추가) ── */
+const VC_AI_MAX_WORDS = 50;
+const vcAi = { history: [], busy: false };
+
+const VC_AI_SYSTEM = `너는 한국 홈스쿨러 학생의 영어 단어장을 채워주는 도우미야. 항상 유효한 JSON 객체만 반환해.
+학생 입력에서 단어를 뽑아 단어장 항목을 만들어:
+- 영어만 있으면: 가장 일반적인 한국어 뜻을 찾아.
+- 한글만 있으면: 그 뜻에 가장 맞고 자주 쓰는 영어 단어를 골라.
+- 영어와 한글이 같이 있으면: 짝을 맞춰 학생이 적은 뜻을 살리되, 영어 철자가 틀렸으면 고쳐.
+- 숙어·구동사(예: give up)는 하나의 항목으로.
+각 항목 필드:
+- word: 영어 (고유명사가 아니면 소문자)
+- meaning: 한국어 핵심 뜻 1~3개를 ", "로 연결
+- pos: n. v. adj. adv. prep. conj. pron. int. phr. 중 하나
+- example: 그 단어가 들어간 짧고 쉬운 영어 예문 하나
+reply: 학생에게 하는 짧고 친근한 한국어 한두 문장(해요체).
+단어 추가가 아니라 질문(예: 두 단어 차이, 쓰임)이면 reply에 짧게 답하고 words는 빈 배열로.
+한 번에 최대 ${VC_AI_MAX_WORDS}개.
+형식: {"reply":"...","words":[{"word":"...","meaning":"...","pos":"...","example":"..."}]}`;
+
+function vcAiGreet() {
+  const box = document.getElementById('vc-ai-messages');
+  if (!box || box.children.length) return;
+  vcAiAddMsg('ai',
+    '안녕하세요! 외우고 싶은 단어를 그냥 적어주세요 ✨<br>' +
+    '<span class="vc-ai-ex">apple, banana</span> 영어만<br>' +
+    '<span class="vc-ai-ex">용감한, 포기하다</span> 한글만<br>' +
+    '<span class="vc-ai-ex">run 달리다, climb</span> 섞어도 OK<br>' +
+    '뜻·품사·예문을 찾아서 단어장에 바로 넣어줄게요.');
+}
+
+function vcAiAddMsg(role, html) {
+  const box = document.getElementById('vc-ai-messages');
+  const el = document.createElement('div');
+  el.className = `study-msg ${role}`;
+  el.innerHTML = `<div class="study-msg-avatar">${role === 'ai' ? '✨' : '🙂'}</div><div class="study-msg-bubble">${html}</div>`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  return el;
+}
+
+function vcAiKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    vcAiSend();
+  }
+}
+
+async function vcAiSend() {
+  const input = document.getElementById('vc-ai-input');
+  const btn   = document.getElementById('vc-ai-send');
+  const text = input.value.trim();
+  if (!text || vcAi.busy) return;
+  const apiKey = localStorage.getItem(OPENAI_KEY_STORAGE);
+  if (!apiKey) { showSettingsModal(); return; }
+
+  input.value = '';
+  vcAiAddMsg('user', escHtml(text).replace(/\n/g, '<br>'));
+  const typing = vcAiAddMsg('ai', '');
+  typing.querySelector('.study-msg-bubble').outerHTML =
+    '<div class="study-typing-bubble"><span class="study-typing-dot"></span><span class="study-typing-dot"></span><span class="study-typing-dot"></span></div>';
+  vcAi.busy = true;
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4.1-mini',
+        max_tokens: 4000,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: VC_AI_SYSTEM },
+          ...vcAi.history.slice(-6),
+          { role: 'user', content: text }
+        ]
+      })
+    });
+    const json = await resp.json();
+    if (json.error) throw new Error(json.error.message);
+    const raw = json.choices[0].message.content;
+    const parsed = JSON.parse(raw);
+    vcAi.history.push({ role: 'user', content: text }, { role: 'assistant', content: raw });
+
+    const d = vcLoad();
+    const added = [], dup = [];
+    (Array.isArray(parsed.words) ? parsed.words : []).slice(0, VC_AI_MAX_WORDS).forEach(w => {
+      const word    = String(w.word || '').trim().slice(0, 80);
+      const meaning = String(w.meaning || '').trim().slice(0, 200);
+      if (!word || !meaning) return;
+      if (vcHasWord(d, word)) { dup.push(word); return; }
+      const nw = vcNewWord(word, meaning,
+        String(w.example || '').trim().slice(0, 300),
+        String(w.pos || '').trim().slice(0, 12));
+      d.words.push(nw);
+      added.push(nw);
+    });
+    if (added.length) vcSave(d);
+
+    let html = parsed.reply ? escHtml(parsed.reply) : '';
+    if (added.length) {
+      html += `<div class="vc-ai-added-title">📒 ${added.length}개 추가했어요</div><ul class="vc-ai-added">` +
+        added.map(w => `<li><b>${escHtml(w.word)}</b>${w.pos ? ` <i>${escHtml(w.pos)}</i>` : ''} ${escHtml(w.meaning)}</li>`).join('') +
+        `</ul><button class="vc-ai-undo" data-ids="${added.map(w => w.id).join(',')}" onclick="vcAiUndo(this)">↩ 방금 추가한 단어 취소</button>`;
+    }
+    if (dup.length) html += `<div class="vc-ai-dup">이미 있는 단어라 건너뛰었어요: ${dup.map(escHtml).join(', ')}</div>`;
+    typing.remove();
+    vcAiAddMsg('ai', html || '찾은 단어가 없어요. 단어를 다시 적어줄래요?');
+    if (added.length) {
+      vcRenderBook();
+      showToast(`AI가 단어 ${added.length}개를 추가했어요`, '✨');
+    }
+  } catch (err) {
+    typing.remove();
+    vcAiAddMsg('ai', '⚠️ 오류가 났어요: ' + escHtml(err.message));
+  } finally {
+    vcAi.busy = false;
+    btn.disabled = false;
+    input.focus();
+  }
+}
+
+function vcAiUndo(btn) {
+  const ids = new Set(btn.dataset.ids.split(','));
+  const d = vcLoad();
+  // 아직 학습 배정 전(신규)인 단어만 되돌림
+  const before = d.words.length;
+  d.words = d.words.filter(w => !(ids.has(w.id) && w.status === 'new'));
+  const removed = before - d.words.length;
+  vcSave(d);
+  btn.disabled = true;
+  btn.textContent = `↩ ${removed}개 취소했어요`;
   vcRenderBook();
 }
 

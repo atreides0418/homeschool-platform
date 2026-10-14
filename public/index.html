@@ -526,41 +526,61 @@
 
         <!-- 단어장 -->
         <div id="vc-book-view" style="display:none">
-          <div class="fc-tools-row">
-            <div class="card fc-add-card">
-              <h3 class="card-title">단어 직접 추가</h3>
-              <div class="vc-add-grid">
-                <input type="text" id="vc-word-input" class="form-input" placeholder="단어 (예: apple)"
-                       onkeypress="if(event.key==='Enter') document.getElementById('vc-meaning-input').focus()">
-                <input type="text" id="vc-meaning-input" class="form-input" placeholder="뜻 (예: 사과)"
-                       onkeypress="if(event.key==='Enter') vcAddWord()">
-                <input type="text" id="vc-pos-input" class="form-input" placeholder="품사 (선택, 예: n.)"
-                       onkeypress="if(event.key==='Enter') vcAddWord()">
-                <input type="text" id="vc-example-input" class="form-input" placeholder="예문 (선택)"
-                       onkeypress="if(event.key==='Enter') vcAddWord()">
+          <div class="vc-book-layout">
+            <div class="vc-book-main">
+              <div class="fc-tools-row">
+                <div class="card fc-add-card">
+                  <h3 class="card-title">단어 직접 추가</h3>
+                  <div class="vc-add-grid">
+                    <input type="text" id="vc-word-input" class="form-input" placeholder="단어 (예: apple)"
+                           onkeypress="if(event.key==='Enter') document.getElementById('vc-meaning-input').focus()">
+                    <input type="text" id="vc-meaning-input" class="form-input" placeholder="뜻 (예: 사과)"
+                           onkeypress="if(event.key==='Enter') vcAddWord()">
+                    <input type="text" id="vc-pos-input" class="form-input" placeholder="품사 (선택, 예: n.)"
+                           onkeypress="if(event.key==='Enter') vcAddWord()">
+                    <input type="text" id="vc-example-input" class="form-input" placeholder="예문 (선택)"
+                           onkeypress="if(event.key==='Enter') vcAddWord()">
+                  </div>
+                  <button class="btn-primary" onclick="vcAddWord()">+ 단어 추가</button>
+                </div>
+                <div class="card fc-ai-card">
+                  <h3 class="card-title">📂 CSV로 한꺼번에 추가</h3>
+                  <p class="fc-ai-desc">엑셀에서 아래 열 이름으로 만든 뒤 CSV로 저장해서 올려요.<br>
+                    <code class="vc-code">word, meaning, example, pos</code><br>
+                    example, pos는 비워도 돼요. 이미 있는 단어는 건너뛰어요.</p>
+                  <input type="file" id="vc-csv-input" accept=".csv,text/csv" style="display:none" onchange="vcImportCSV(this)">
+                  <button class="btn-action fc-ai-btn" onclick="document.getElementById('vc-csv-input').click()">📂 CSV 파일 선택</button>
+                  <button class="vc-legacy-btn" id="vc-legacy-btn" style="display:none" onclick="vcImportLegacyCards()">🃏 예전 암기 카드 가져오기</button>
+                </div>
               </div>
-              <button class="btn-primary" onclick="vcAddWord()">+ 단어 추가</button>
-            </div>
-            <div class="card fc-ai-card">
-              <h3 class="card-title">📂 CSV로 한꺼번에 추가</h3>
-              <p class="fc-ai-desc">엑셀에서 아래 열 이름으로 만든 뒤 CSV로 저장해서 올려요.<br>
-                <code class="vc-code">word, meaning, example, pos</code><br>
-                example, pos는 비워도 돼요. 이미 있는 단어는 건너뛰어요.</p>
-              <input type="file" id="vc-csv-input" accept=".csv,text/csv" style="display:none" onchange="vcImportCSV(this)">
-              <button class="btn-action fc-ai-btn" onclick="document.getElementById('vc-csv-input').click()">📂 CSV 파일 선택</button>
-              <button class="vc-legacy-btn" id="vc-legacy-btn" style="display:none" onclick="vcImportLegacyCards()">🃏 예전 암기 카드 가져오기</button>
-            </div>
-          </div>
 
-          <div class="vc-filter-row" id="vc-filter-row">
-            <button class="vc-filter active" data-filter="all" onclick="vcSetFilter('all')">전체</button>
-            <button class="vc-filter" data-filter="learning" onclick="vcSetFilter('learning')">학습중</button>
-            <button class="vc-filter" data-filter="graduated" onclick="vcSetFilter('graduated')">졸업</button>
-            <button class="vc-filter" data-filter="confused" onclick="vcSetFilter('confused')">헷갈리는 단어</button>
-            <span class="vc-filter-count" id="vc-filter-count"></span>
-          </div>
+              <div class="vc-filter-row" id="vc-filter-row">
+                <button class="vc-filter active" data-filter="all" onclick="vcSetFilter('all')">전체</button>
+                <button class="vc-filter" data-filter="learning" onclick="vcSetFilter('learning')">학습중</button>
+                <button class="vc-filter" data-filter="graduated" onclick="vcSetFilter('graduated')">졸업</button>
+                <button class="vc-filter" data-filter="confused" onclick="vcSetFilter('confused')">헷갈리는 단어</button>
+                <span class="vc-filter-count" id="vc-filter-count"></span>
+              </div>
 
-          <div class="fc-card-list" id="vc-word-list"></div>
+              <div class="fc-card-list" id="vc-word-list"></div>
+            </div>
+
+            <aside class="vc-ai-panel">
+              <div class="vc-ai-head">
+                <span class="vc-ai-icon">✨</span>
+                <div>
+                  <div class="vc-ai-title">AI 단어 도우미</div>
+                  <div class="vc-ai-sub">영어든 한글이든 적으면 뜻을 찾아서 바로 추가해요</div>
+                </div>
+              </div>
+              <div class="vc-ai-messages" id="vc-ai-messages"></div>
+              <div class="vc-ai-input-area">
+                <textarea id="vc-ai-input" class="study-chat-input" rows="1"
+                  placeholder="예: apple, 용감한, run 달리다" onkeydown="vcAiKeydown(event)"></textarea>
+                <button class="study-send-btn" id="vc-ai-send" onclick="vcAiSend()">↑</button>
+              </div>
+            </aside>
+          </div>
         </div>
       </section>
 
