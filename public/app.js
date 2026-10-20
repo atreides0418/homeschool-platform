@@ -6441,13 +6441,7 @@ function vcDeleteWord(id) {
   const w = d.words.find(x => x.id === id);
   if (!w || !confirm(`「${w.word}」 단어를 삭제할까요?`)) return;
   d.words = d.words.filter(x => x.id !== id);
-  d.batches.forEach(b => { b.ids = b.ids.filter(x => x !== id); });
-  [d.today, d.past].forEach(t => {
-    if (!t) return;
-    t.reviewIds = t.reviewIds.filter(x => x !== id);
-    t.newIds    = t.newIds.filter(x => x !== id);
-    t.queue     = t.queue.filter(q => q.id !== id);
-  });
+  vcDetachWord(d, id);
   vcSave(d);
   vcRenderBook();
 }
@@ -6545,35 +6539,63 @@ function vcImportLegacyCards() {
   vcRenderBook();
 }
 
-/* ── AI 단어 도우미 (영어/한글 아무거나 → 뜻 찾아서 자동 추가) ── */
-const VC_AI_MAX_WORDS = 50;
-const vcAi = { history: [], busy: false };
+/* ── AI 단어 도우미 — 단어장 전체 관리 (추가·수정·삭제·학습 상태·설정·기능 실행) ── */
+const VC_AI_MAX_WORDS   = 50;    // 한 번에 추가할 수 있는 단어 수
+const VC_AI_MAX_ACTIONS = 300;   // 한 번에 처리하는 작업 수
+const vcAi = { history: [], busy: false, undo: null };   // undo: { before, beforeDaily, after }
 
-const VC_AI_SYSTEM = `너는 한국 홈스쿨러 학생의 영어 단어장을 채워주는 도우미야. 항상 유효한 JSON 객체만 반환해.
-학생 입력에서 단어를 뽑아 단어장 항목을 만들어:
+const VC_AI_SYSTEM = `너는 한국 홈스쿨러 학생의 영어 단어장을 관리하는 도우미야. 단어장의 모든 걸 바꿀 권한이 있어. 항상 유효한 JSON 객체만 반환해.
+
+[단어 추가] 학생이 단어를 적으면 add 작업을 만들어:
 - 영어만 있으면: 가장 일반적인 한국어 뜻을 찾아.
 - 한글만 있으면: 그 뜻에 가장 맞고 자주 쓰는 영어 단어를 골라.
 - 영어와 한글이 같이 있으면: 짝을 맞춰 학생이 적은 뜻을 살리되, 영어 철자가 틀렸으면 고쳐.
-- 숙어·구동사(예: give up)는 하나의 항목으로.
-각 항목 필드:
-- word: 영어 (고유명사가 아니면 소문자)
-- meaning: 한국어 핵심 뜻 1~3개를 ", "로 연결
-- pos: n. v. adj. adv. prep. conj. pron. int. phr. 중 하나
-- example: 그 단어가 들어간 짧고 쉬운 영어 예문 하나
-reply: 학생에게 하는 짧고 친근한 한국어 한두 문장(해요체).
-단어 추가가 아니라 질문(예: 두 단어 차이, 쓰임)이면 reply에 짧게 답하고 words는 빈 배열로.
-한 번에 최대 ${VC_AI_MAX_WORDS}개.
-형식: {"reply":"...","words":[{"word":"...","meaning":"...","pos":"...","example":"..."}]}`;
+- 숙어·구동사(예: give up)는 하나의 항목으로. 이미 단어장에 있는 단어는 추가하지 마.
+- word: 영어(고유명사가 아니면 소문자), meaning: 한국어 핵심 뜻 1~3개를 ", "로 연결,
+  pos: n. v. adj. adv. prep. conj. pron. int. phr. 중 하나, example: 그 단어가 들어간 짧고 쉬운 영어 예문 하나
+- 한 번에 최대 ${VC_AI_MAX_WORDS}개.
+
+[작업 종류] actions 배열에 순서대로 넣어. 단어는 항상 단어장에 적힌 word 철자 그대로 가리켜.
+- {"type":"add","word":"...","meaning":"...","pos":"...","example":"..."}
+- {"type":"update","word":"기존 단어","set":{"word":"새 철자","meaning":"...","pos":"...","example":"...","status":"new|learning|graduated","needsReview":true}}
+  · set에는 바꿀 필드만. status "new" = 학습 기록 초기화(안 배운 단어로), "graduated" = 졸업, needsReview true = 헷갈리는 단어로 표시(다음 복습에 나옴), false = 표시 해제
+- {"type":"delete","word":"..."}
+- {"type":"set_daily","count":숫자}  — 하루 새 단어 개수(1~100)
+- {"type":"filter","value":"all|learning|graduated|confused"}  — 단어장 목록 필터
+- {"type":"run","what":"study|past|quiz|type_quiz|today|book"}  — study=오늘 학습 시작, past=어제 단어 공부, quiz=뜻 고르기 퀴즈, type_quiz=쓰기 퀴즈, today/book=탭 이동. run은 맨 마지막에 하나만.
+
+[규칙]
+- "전부", "헷갈리는 거 다" 같은 요청은 아래 단어장 목록을 보고 해당 단어마다 작업을 하나씩 만들어.
+- 무엇을 할지 애매하거나, 단어를 많이(10개 넘게) 지우는데 대상이 분명하지 않으면 actions는 비우고 reply로 되물어.
+- 질문(두 단어 차이, 쓰임, 지금 단어장 상태 등)이면 reply에 짧게 답하고 actions는 빈 배열로.
+- reply: 학생에게 하는 짧고 친근한 한국어 한두 문장(해요체). 무엇을 했는지 간단히.
+형식: {"reply":"...","actions":[...]}`;
+
+// AI에게 보여줄 현재 단어장 상태
+function vcAiContext() {
+  const d = vcLoad();
+  const t = d.today && d.today.date === todayStr() ? d.today : null;
+  const lines = d.words.map(w =>
+    [w.word, w.meaning, w.pos || '-', VC_STATUS_LABEL[w.status] || w.status, w.needsReview ? '헷갈림' : '-', w.example || '-'].join(' | '));
+  let info = `하루 새 단어 ${vcGetDaily()}개 · 전체 ${d.words.length}개`;
+  if (t) {
+    const { total, done } = vcTodayCounts(t);
+    info += ` · 오늘 ${t.day}일차 학습 ${done}/${total}${t.queue.length ? '' : ' (끝남)'}`;
+  }
+  return `[현재 단어장] ${info}\n형식: 단어 | 뜻 | 품사 | 상태 | 헷갈림 | 예문\n${lines.join('\n') || '(비어 있음)'}`;
+}
 
 function vcAiGreet() {
   const box = document.getElementById('vc-ai-messages');
   if (!box || box.children.length) return;
   vcAiAddMsg('ai',
-    '안녕하세요! 외우고 싶은 단어를 그냥 적어주세요 ✨<br>' +
-    '<span class="vc-ai-ex">apple, banana</span> 영어만<br>' +
-    '<span class="vc-ai-ex">용감한, 포기하다</span> 한글만<br>' +
-    '<span class="vc-ai-ex">run 달리다, climb</span> 섞어도 OK<br>' +
-    '뜻·품사·예문을 찾아서 단어장에 바로 넣어줄게요.');
+    '안녕하세요! 단어장 일은 뭐든 맡겨주세요 ✨<br>' +
+    '<span class="vc-ai-ex">apple, 용감한, run 달리다</span> 단어 추가<br>' +
+    '<span class="vc-ai-ex">brave 뜻에 씩씩한도 넣어줘</span> 수정<br>' +
+    '<span class="vc-ai-ex">헷갈리는 단어 다 졸업시켜줘</span> 학습 상태<br>' +
+    '<span class="vc-ai-ex">banana 지워줘 · 하루 10개로</span> 삭제·설정<br>' +
+    '<span class="vc-ai-ex">쓰기 퀴즈 시작해줘</span> 기능 실행<br>' +
+    '잘못 바뀌면 ↩ 되돌리기를 누르면 돼요.');
 }
 
 function vcAiAddMsg(role, html) {
@@ -6591,6 +6613,122 @@ function vcAiKeydown(e) {
     e.preventDefault();
     vcAiSend();
   }
+}
+
+// 단어를 묶음·오늘 학습·지난 단어 세션에서 빼기 (삭제·초기화 공용)
+function vcDetachWord(d, id) {
+  d.batches.forEach(b => { b.ids = b.ids.filter(x => x !== id); });
+  [d.today, d.past].forEach(t => {
+    if (!t) return;
+    t.reviewIds = t.reviewIds.filter(x => x !== id);
+    t.newIds    = t.newIds.filter(x => x !== id);
+    t.queue     = t.queue.filter(q => q.id !== id);
+  });
+}
+
+// AI가 정한 작업들을 단어장에 적용하고 결과 요약을 돌려줌
+function vcAiApply(actions) {
+  const d = vcLoad();
+  const r = { added: [], updated: [], deleted: [], skipped: [], daily: null, run: null, filter: null };
+  const str = (v, max) => String(v == null ? '' : v).trim().slice(0, max);
+  const find = word => {
+    const k = str(word, 80).toLowerCase();
+    return d.words.find(w => w.word.trim().toLowerCase() === k);
+  };
+
+  actions.slice(0, VC_AI_MAX_ACTIONS).forEach(a => {
+    if (!a || typeof a !== 'object') return;
+    if (a.type === 'add') {
+      const word = str(a.word, 80), meaning = str(a.meaning, 200);
+      if (!word || !meaning || r.added.length >= VC_AI_MAX_WORDS) return;
+      if (vcHasWord(d, word)) { r.skipped.push(`${word} (이미 있음)`); return; }
+      const nw = vcNewWord(word, meaning, str(a.example, 300), str(a.pos, 12));
+      d.words.push(nw);
+      r.added.push(nw);
+
+    } else if (a.type === 'update') {
+      const w = find(a.word);
+      if (!w) { r.skipped.push(`${str(a.word, 80)} (없는 단어)`); return; }
+      const set = a.set && typeof a.set === 'object' ? a.set : {};
+      const changes = [];
+      const nw = str(set.word, 80);
+      if (nw && nw !== w.word) {
+        if (nw.toLowerCase() !== w.word.toLowerCase() && vcHasWord(d, nw)) r.skipped.push(`${w.word} → ${nw} (이미 있는 철자)`);
+        else { changes.push(`철자 ${w.word} → ${nw}`); w.word = nw; }
+      }
+      if (str(set.meaning, 200)) { w.meaning = str(set.meaning, 200); changes.push('뜻'); }
+      if (set.pos != null)       { w.pos = str(set.pos, 12); changes.push('품사'); }
+      if (set.example != null)   { w.example = str(set.example, 300); changes.push('예문'); }
+      if (set.status === 'new' && w.status !== 'new') {
+        vcDetachWord(d, w.id);
+        Object.assign(w, { status: 'new', firstStudied: null, lastResult: null, needsReview: false });
+        changes.push('학습 초기화');
+      } else if (set.status === 'graduated' && w.status !== 'graduated') {
+        Object.assign(w, { status: 'graduated', needsReview: false });
+        changes.push('졸업 🎓');
+      } else if (set.status === 'learning' && w.status !== 'learning') {
+        // 묶음 밖에서 학습중이 된 단어는 헷갈림 표시로 복습에 들어가게 함
+        if (w.status === 'new') w.firstStudied = todayStr();
+        Object.assign(w, { status: 'learning', needsReview: true });
+        changes.push('학습중');
+      }
+      if (typeof set.needsReview === 'boolean' && set.needsReview !== !!w.needsReview) {
+        w.needsReview = set.needsReview;
+        if (set.needsReview) {
+          w.lastResult = 'confused';
+          if (w.status === 'new') w.firstStudied = todayStr();
+          if (w.status !== 'learning') w.status = 'learning';
+          changes.push('헷갈림 표시');
+        } else {
+          if (w.lastResult === 'confused') w.lastResult = 'know';
+          changes.push('헷갈림 해제');
+        }
+      }
+      if (changes.length) r.updated.push({ word: w.word, changes });
+
+    } else if (a.type === 'delete') {
+      const w = find(a.word);
+      if (!w) { r.skipped.push(`${str(a.word, 80)} (없는 단어)`); return; }
+      d.words = d.words.filter(x => x !== w);
+      vcDetachWord(d, w.id);
+      r.deleted.push(w.word);
+
+    } else if (a.type === 'set_daily') {
+      const n = parseInt(a.count, 10);
+      if (n >= 1 && n <= 100 && n !== vcGetDaily()) r.daily = n;
+    } else if (a.type === 'filter') {
+      if (['all', 'learning', 'graduated', 'confused'].includes(a.value)) r.filter = a.value;
+    } else if (a.type === 'run') {
+      if (['study', 'past', 'quiz', 'type_quiz', 'today', 'book'].includes(a.what)) r.run = a.what;
+    }
+  });
+
+  r.changed = !!(r.added.length || r.updated.length || r.deleted.length || r.daily);
+  if (r.changed) {
+    // 되돌리기용 스냅샷 (가장 최근 AI 변경만 되돌릴 수 있음)
+    vcAi.undo = { before: localStorage.getItem(VC_STORAGE_KEY), beforeDaily: localStorage.getItem(VC_DAILY_KEY) };
+    vcSave(d);
+    if (r.daily) localStorage.setItem(VC_DAILY_KEY, String(r.daily));
+    const el = document.getElementById('vc-daily-input');
+    if (el) el.value = vcGetDaily();
+    vcAi.undo.after = localStorage.getItem(VC_STORAGE_KEY);
+  }
+  return r;
+}
+
+function vcAiResultHtml(r) {
+  const list = items => `<ul class="vc-ai-added">${items.slice(0, 30).join('')}${items.length > 30 ? `<li>…외 ${items.length - 30}개</li>` : ''}</ul>`;
+  let html = '';
+  if (r.added.length) html += `<div class="vc-ai-added-title">➕ ${r.added.length}개 추가</div>` +
+    list(r.added.map(w => `<li><b>${escHtml(w.word)}</b>${w.pos ? ` <i>${escHtml(w.pos)}</i>` : ''} ${escHtml(w.meaning)}</li>`));
+  if (r.updated.length) html += `<div class="vc-ai-added-title">✏️ ${r.updated.length}개 수정</div>` +
+    list(r.updated.map(u => `<li><b>${escHtml(u.word)}</b> ${escHtml(u.changes.join(', '))}</li>`));
+  if (r.deleted.length) html += `<div class="vc-ai-added-title">🗑 ${r.deleted.length}개 삭제</div>` +
+    list(r.deleted.map(w => `<li>${escHtml(w)}</li>`));
+  if (r.daily) html += `<div class="vc-ai-added-title">⚙️ 하루 새 단어 ${r.daily}개 (다음 학습부터)</div>`;
+  if (r.skipped.length) html += `<div class="vc-ai-dup">건너뛴 것: ${r.skipped.map(escHtml).join(', ')}</div>`;
+  if (r.changed) html += `<button class="vc-ai-undo" onclick="vcAiUndo(this)">↩ 되돌리기</button>`;
+  return html;
 }
 
 async function vcAiSend() {
@@ -6618,10 +6756,11 @@ async function vcAiSend() {
       },
       body: JSON.stringify({
         model: 'gpt-4.1-mini',
-        max_tokens: 4000,
+        max_tokens: 12000,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: VC_AI_SYSTEM },
+          { role: 'system', content: vcAiContext() },
           ...vcAi.history.slice(-6),
           { role: 'user', content: text }
         ]
@@ -6633,33 +6772,34 @@ async function vcAiSend() {
     const parsed = JSON.parse(raw);
     vcAi.history.push({ role: 'user', content: text }, { role: 'assistant', content: raw });
 
-    const d = vcLoad();
-    const added = [], dup = [];
-    (Array.isArray(parsed.words) ? parsed.words : []).slice(0, VC_AI_MAX_WORDS).forEach(w => {
-      const word    = String(w.word || '').trim().slice(0, 80);
-      const meaning = String(w.meaning || '').trim().slice(0, 200);
-      if (!word || !meaning) return;
-      if (vcHasWord(d, word)) { dup.push(word); return; }
-      const nw = vcNewWord(word, meaning,
-        String(w.example || '').trim().slice(0, 300),
-        String(w.pos || '').trim().slice(0, 12));
-      d.words.push(nw);
-      added.push(nw);
-    });
-    if (added.length) vcSave(d);
+    const actions = Array.isArray(parsed.actions) ? parsed.actions : [];
+    const r = vcAiApply(actions);
 
-    let html = parsed.reply ? escHtml(parsed.reply) : '';
-    if (added.length) {
-      html += `<div class="vc-ai-added-title">📒 ${added.length}개 추가했어요</div><ul class="vc-ai-added">` +
-        added.map(w => `<li><b>${escHtml(w.word)}</b>${w.pos ? ` <i>${escHtml(w.pos)}</i>` : ''} ${escHtml(w.meaning)}</li>`).join('') +
-        `</ul><button class="vc-ai-undo" data-ids="${added.map(w => w.id).join(',')}" onclick="vcAiUndo(this)">↩ 방금 추가한 단어 취소</button>`;
-    }
-    if (dup.length) html += `<div class="vc-ai-dup">이미 있는 단어라 건너뛰었어요: ${dup.map(escHtml).join(', ')}</div>`;
+    // 이전 되돌리기 버튼은 잠금 (가장 최근 변경만 되돌릴 수 있음)
+    if (r.changed) document.querySelectorAll('#vc-ai-messages .vc-ai-undo:not(:disabled)').forEach(b => {
+      b.disabled = true;
+      b.textContent = '↩ 이후 변경이 있어 되돌릴 수 없어요';
+    });
+
     typing.remove();
-    vcAiAddMsg('ai', html || '찾은 단어가 없어요. 단어를 다시 적어줄래요?');
-    if (added.length) {
-      vcRenderBook();
-      showToast(`AI가 단어 ${added.length}개를 추가했어요`, '✨');
+    vcAiAddMsg('ai', (parsed.reply ? escHtml(parsed.reply) : '') + vcAiResultHtml(r) || '무엇을 할지 잘 모르겠어요. 다시 말해줄래요?');
+
+    if (r.filter) vcSetFilter(r.filter);
+    else if (r.changed) vcRenderBook();
+    if (r.changed) showToast('AI가 단어장을 바꿨어요', '✨');
+
+    if (r.run) {
+      const fn = {
+        study: vcStartStudy, past: vcStartPast,
+        quiz: vcStartQuiz, type_quiz: vcStartTypeQuiz,
+        today: () => vcSetTab('today'), book: () => vcSetTab('book')
+      }[r.run];
+      // 퀴즈는 오늘 학습 단어로 내므로 오늘 학습이 있어야 함
+      if ((r.run === 'quiz' || r.run === 'type_quiz') && !vcEnsureToday(vcLoad())) {
+        vcAiAddMsg('ai', '오늘 학습이 아직 없어서 퀴즈를 열 수 없어요.');
+      } else {
+        setTimeout(() => { vcState.mode = 'today'; fn(); }, 700);
+      }
     }
   } catch (err) {
     typing.remove();
@@ -6672,16 +6812,20 @@ async function vcAiSend() {
 }
 
 function vcAiUndo(btn) {
-  const ids = new Set(btn.dataset.ids.split(','));
-  const d = vcLoad();
-  // 아직 학습 배정 전(신규)인 단어만 되돌림
-  const before = d.words.length;
-  d.words = d.words.filter(w => !(ids.has(w.id) && w.status === 'new'));
-  const removed = before - d.words.length;
-  vcSave(d);
+  const u = vcAi.undo;
+  if (!u) { btn.disabled = true; return; }
+  // AI가 바꾼 뒤 학습 등으로 또 바뀌었으면 확인
+  if (localStorage.getItem(VC_STORAGE_KEY) !== u.after &&
+      !confirm('AI가 바꾼 뒤에 단어장이 또 바뀌었어요. 되돌리면 그 내용도 함께 사라져요. 되돌릴까요?')) return;
+  if (u.before == null) localStorage.removeItem(VC_STORAGE_KEY); else localStorage.setItem(VC_STORAGE_KEY, u.before);
+  if (u.beforeDaily == null) localStorage.removeItem(VC_DAILY_KEY); else localStorage.setItem(VC_DAILY_KEY, u.beforeDaily);
+  const el = document.getElementById('vc-daily-input');
+  if (el) el.value = vcGetDaily();
+  vcAi.undo = null;
   btn.disabled = true;
-  btn.textContent = `↩ ${removed}개 취소했어요`;
+  btn.textContent = '↩ 되돌렸어요';
   vcRenderBook();
+  showToast('AI 변경을 되돌렸어요', '↩');
 }
 
 /* ============================================================
