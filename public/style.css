@@ -4796,3 +4796,12 @@ body.moonlit-theme .sync-status-btn:not(.ok):not(.err) { color: rgba(145,175,222
 .vc-tquiz-btns .btn-primary { width: auto; padding: 11px 28px; }
 .vc-tquiz-btns .modal-cancel { flex: 0 0 auto; padding: 11px 18px; }
 .vc-tquiz-btns .modal-cancel:disabled { opacity: .45; cursor: not-allowed; }
+
+/* 지난 단어 공부 · 이월 안내 */
+.vc-chip.carried { background: #FDEDE0; color: #C0562B; }
+.vc-card-kind.past { background: rgba(92,139,212,.13); color: #3D68A8; }
+.vc-today-note { font-size: 12.5px; color: var(--text-light); margin: -8px 0 16px; }
+.vc-past-row { margin-bottom: 20px; }
+.vc-past-btn { flex: 0 0 auto; padding: 10px 18px; }
+.vc-past-btn small { font-size: 11.5px; color: var(--text-light); margin-left: 4px; }
+.vc-locked-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }

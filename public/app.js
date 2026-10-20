@@ -5643,6 +5643,7 @@ const VC_REVIEW_BATCHES = 2;   // 오늘 신규 + 어제 + 그제 = 3일 누적
 
 const vcState = {
   tab: 'today',      // today | book
+  mode: 'today',     // today | past — 학습/퀴즈가 쓰는 세션
   filter: 'all',     // all | learning | graduated | confused
   flipped: false,
   editingId: null,
@@ -5734,6 +5735,20 @@ function vcEnsureToday(d) {
   const today = todayStr();
   if (d.today && d.today.date === today) return true;
 
+  // 지난번 학습을 다 못 끝냈으면 새 단어 없이 그 분량을 오늘로 이어감
+  const prev = d.today;
+  if (prev && prev.queue.length) {
+    const ids = new Set(d.words.map(w => w.id));
+    prev.queue = prev.queue.filter(q => ids.has(q.id));
+    if (prev.queue.length) {
+      prev.batchDate = prev.batchDate || prev.date;
+      prev.date = today;
+      prev.carried = true;
+      vcSave(d);
+      return true;
+    }
+  }
+
   const n = vcGetDaily();
   const fresh = d.words.filter(w => w.status === 'new');
   if (fresh.length < n) return false;
@@ -5768,6 +5783,7 @@ function vcEnsureToday(d) {
 
   d.today = {
     date: today,
+    batchDate: today,
     day: d.dayCount,
     reviewIds,
     newIds,
@@ -5783,6 +5799,59 @@ function vcEnsureToday(d) {
   return true;
 }
 
+/* ── 지금 진행 중인 세션: 오늘 학습(d.today) 또는 지난 단어 공부(d.past) ── */
+function vcSession(d) {
+  return vcState.mode === 'past' ? d.past : d.today;
+}
+
+// 오늘 묶음 바로 전에 배운 묶음 (= 어제 단어)
+function vcPastBatch(d) {
+  const t = d.today;
+  const cur = t && t.date === todayStr() ? (t.batchDate || t.date) : null;
+  const ids = new Set(d.words.map(w => w.id));
+  for (let i = d.batches.length - 1; i >= 0; i--) {
+    const b = d.batches[i];
+    if (b.date === cur) continue;
+    const live = b.ids.filter(id => ids.has(id));
+    if (live.length) return { date: b.date, ids: live };
+  }
+  return null;
+}
+
+function vcPastLabel(date) {
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  if (date === `${y.getFullYear()}-${y.getMonth()+1}-${y.getDate()}`) return '어제 단어';
+  const [, m, dd] = date.split('-');
+  return `지난 단어(${m}/${dd})`;
+}
+
+/* ── 지난 단어 공부 (새 단어 없이 이전 묶음만) ── */
+function vcStartPast() {
+  const d = vcLoad();
+  vcEnsureToday(d);
+  const pb = vcPastBatch(d);
+  if (!pb) { showToast('아직 공부한 지난 단어가 없어요', '📖'); return; }
+  const today = todayStr();
+  // 오늘 같은 묶음을 하다 멈췄으면 이어서, 아니면 새로 시작
+  const p = d.past;
+  if (!(p && p.date === today && p.batchDate === pb.date && p.queue.length)) {
+    d.past = {
+      date: today,
+      batchDate: pb.date,
+      reviewIds: pb.ids,
+      newIds: [],
+      queue: vcShuffle(pb.ids).map(id => ({ id, kind: 'past' })),
+      quizDone: false,
+      quizScore: null
+    };
+  }
+  vcSave(d);
+  vcState.mode = 'past';
+  vcShowView('study');
+  vcShowCard(d);
+}
+
 function vcTodayCounts(t) {
   const total = t.reviewIds.length + t.newIds.length;
   const left  = t.queue.filter(q => q.kind !== 'retry').length;
@@ -5795,6 +5864,7 @@ function vcShowView(view) {
     document.getElementById(`vc-${v}-view`).style.display = v === view ? 'block' : 'none';
   });
   document.getElementById('vc-tabs').style.display = (view === 'today' || view === 'book') ? '' : 'none';
+  if (view === 'today' || view === 'book') vcState.mode = 'today';
   document.querySelectorAll('.vc-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === view));
   // 단어장은 AI 도우미 패널까지 들어가도록 넓게
   document.getElementById('page-cards').classList.toggle('vc-wide', view === 'book');
@@ -5833,6 +5903,11 @@ function vcRenderToday() {
       <span class="vc-stat"><b>${cnt.graduated}</b>졸업 🎓</span>
     </div>`;
 
+  const pb = vcPastBatch(d);
+  const pastBtn = pb
+    ? `<button class="modal-cancel vc-past-btn" onclick="vcStartPast()">📖 ${vcPastLabel(pb.date)} 공부하기 <small>${pb.ids.length}개 · 새 단어 없이</small></button>`
+    : '';
+
   if (!ready) {
     const need = n - cnt.fresh;
     box.innerHTML = `
@@ -5841,7 +5916,10 @@ function vcRenderToday() {
         <h3>새 단어가 ${need}개 더 필요해요</h3>
         <p>하루에 새 단어 ${n}개씩 배워요. 아직 안 배운 단어가 ${cnt.fresh}개라서<br>
            ${n}개가 채워질 때까지 오늘 학습을 시작할 수 없어요.</p>
-        <button class="btn-primary vc-big-btn" onclick="vcSetTab('book')">📒 단어 추가하러 가기</button>
+        <div class="vc-locked-actions">
+          <button class="btn-primary vc-big-btn" onclick="vcSetTab('book')">📒 단어 추가하러 가기</button>
+          ${pastBtn}
+        </div>
       </div>
       ${statsLine}`;
     return;
@@ -5876,6 +5954,7 @@ function vcRenderToday() {
       <span class="vc-today-date">${escHtml(t.date.replace(/^\d+-/, '').replace('-', '월 '))}일</span>
     </div>
     <div class="vc-today-chips">
+      ${t.carried ? '<span class="vc-chip carried">⏰ 지난번 못 끝낸 학습</span>' : ''}
       <span class="vc-chip review">🔁 복습 ${t.reviewIds.length}개</span>
       <span class="vc-chip new">✨ 새 단어 ${t.newIds.length}개</span>
     </div>
@@ -5884,6 +5963,10 @@ function vcRenderToday() {
       <span class="vc-progress-text">${done} / ${total}</span>
     </div>
     <div class="vc-today-action">${action}</div>
+    <p class="vc-today-note">${finished
+      ? `내일 새 단어 ${n}개가 추가돼요`
+      : '이 학습을 끝까지 해야 다음 날 새 단어가 추가돼요. 못 끝내면 내일 이어서 해요'}</p>
+    ${pastBtn ? `<div class="vc-past-row">${pastBtn}</div>` : ''}
     ${statsLine}`;
 }
 
@@ -5891,13 +5974,14 @@ function vcRenderToday() {
 function vcStartStudy() {
   const d = vcLoad();
   if (!vcEnsureToday(d) || !d.today.queue.length) { vcRender(); return; }
+  vcState.mode = 'today';
   vcShowView('study');
   vcShowCard(d);
 }
 
 function vcShowCard(d) {
   d = d || vcLoad();
-  const t = d.today;
+  const t = vcSession(d);
   if (!t || t.date !== todayStr()) { vcRender(); return; }
 
   // 삭제된 단어는 건너뜀
@@ -5921,7 +6005,7 @@ function vcShowCard(d) {
   document.getElementById('vc-back-example').textContent = w.example || '';
 
   const kind = document.getElementById('vc-card-kind');
-  kind.textContent = { review: '🔁 복습', new: '✨ 새 단어', retry: '🤔 한 번 더' }[item.kind];
+  kind.textContent = { review: '🔁 복습', new: '✨ 새 단어', retry: '🤔 한 번 더', past: '📖 ' + vcPastLabel(t.batchDate) }[item.kind];
   kind.className = 'vc-card-kind ' + item.kind;
 
   const { total, done } = vcTodayCounts(t);
@@ -5944,7 +6028,7 @@ function vcUpdateAnswerButtons() {
 function vcAnswer(know) {
   if (!vcState.flipped) return;
   const d = vcLoad();
-  const t = d.today;
+  const t = vcSession(d);
   if (!t || t.date !== todayStr() || !t.queue.length) { vcRender(); return; }
 
   const item = t.queue.shift();
@@ -5995,7 +6079,7 @@ function vcSpeakCurrent() {
 /* ── 마무리 퀴즈 (뜻 고르기 4지선다) ── */
 function vcStartQuiz() {
   const d = vcLoad();
-  const t = d.today;
+  const t = vcSession(d);
   if (!t) { vcRender(); return; }
   const byId = new Map(d.words.map(w => [w.id, w]));
   const ids = [...t.reviewIds, ...t.newIds].filter(id => byId.has(id));
@@ -6068,9 +6152,10 @@ function vcQuizNext(skip) {
   if (q.idx < q.ids.length) { vcShowQuizQuestion(); return; }
 
   const d = vcLoad();
-  if (d.today) {
-    d.today.quizDone = true;
-    d.today.quizScore = `${q.score}/${q.ids.length}`;
+  const t = vcSession(d);
+  if (t) {
+    t.quizDone = true;
+    t.quizScore = `${q.score}/${q.ids.length}`;
     vcSave(d);
   }
   if (q.score === q.ids.length) {
@@ -6089,7 +6174,7 @@ function vcNormAnswer(s) {
 
 function vcStartTypeQuiz() {
   const d = vcLoad();
-  const t = d.today;
+  const t = vcSession(d);
   if (!t) { vcRender(); return; }
   const byId = new Map(d.words.map(w => [w.id, w]));
   const ids = [...t.reviewIds, ...t.newIds].filter(id => byId.has(id));
@@ -6195,9 +6280,10 @@ function vcTypeNext() {
   if (q.idx < q.ids.length) { vcShowTypeQuestion(); return; }
 
   const d = vcLoad();
-  if (d.today) {
-    d.today.typeDone = true;
-    d.today.typeScore = `${q.score}/${q.ids.length}`;
+  const t = vcSession(d);
+  if (t) {
+    t.typeDone = true;
+    t.typeScore = `${q.score}/${q.ids.length}`;
     vcSave(d);
   }
   if (q.score === q.ids.length) {
@@ -6356,11 +6442,12 @@ function vcDeleteWord(id) {
   if (!w || !confirm(`「${w.word}」 단어를 삭제할까요?`)) return;
   d.words = d.words.filter(x => x.id !== id);
   d.batches.forEach(b => { b.ids = b.ids.filter(x => x !== id); });
-  if (d.today) {
-    d.today.reviewIds = d.today.reviewIds.filter(x => x !== id);
-    d.today.newIds    = d.today.newIds.filter(x => x !== id);
-    d.today.queue     = d.today.queue.filter(q => q.id !== id);
-  }
+  [d.today, d.past].forEach(t => {
+    if (!t) return;
+    t.reviewIds = t.reviewIds.filter(x => x !== id);
+    t.newIds    = t.newIds.filter(x => x !== id);
+    t.queue     = t.queue.filter(q => q.id !== id);
+  });
   vcSave(d);
   vcRenderBook();
 }
