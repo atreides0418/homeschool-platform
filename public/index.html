@@ -465,17 +465,13 @@
       <section id="page-cards" class="page">
         <div class="page-header">
           <h1 class="page-title">🔤 영어 단어</h1>
-          <p class="page-subtitle">매일 새 단어를 배우고, 3일 동안 복습하면서 확실하게 외워요!</p>
+          <p class="page-subtitle">매일 새 단어를 배우고, 며칠 동안 복습하면서 확실하게 외워요!</p>
         </div>
 
         <div class="vc-tabs" id="vc-tabs">
           <button class="vc-tab active" data-tab="today" onclick="vcSetTab('today')">📅 오늘 학습</button>
           <button class="vc-tab" data-tab="book" onclick="vcSetTab('book')">📒 단어장</button>
-        </div>
-
-        <!-- 오늘 학습 요약 -->
-        <div id="vc-today-view">
-          <div class="card vc-today-card" id="vc-today-card"></div>
+          <button class="vc-tab" data-tab="settings" onclick="vcSetTab('settings')">⚙️ 설정</button>
         </div>
 
         <!-- 플래시카드 학습 -->
@@ -559,10 +555,17 @@
           </div>
         </div>
 
-        <!-- 단어장 -->
-        <div id="vc-book-view" style="display:none">
-          <div class="vc-book-layout">
-            <div class="vc-book-main">
+        <!-- 탭 화면 (오늘 학습 · 단어장 · 설정) + 오른쪽 AI 도우미 -->
+        <div class="vc-book-layout" id="vc-layout">
+          <div class="vc-book-main">
+
+            <!-- 오늘 학습 요약 -->
+            <div id="vc-today-view">
+              <div class="card vc-today-card" id="vc-today-card"></div>
+            </div>
+
+            <!-- 단어장 -->
+            <div id="vc-book-view" style="display:none">
               <div class="fc-tools-row">
                 <div class="card fc-add-card">
                   <h3 class="card-title">단어 직접 추가</h3>
@@ -591,31 +594,43 @@
 
               <div class="vc-filter-row" id="vc-filter-row">
                 <button class="vc-filter active" data-filter="all" onclick="vcSetFilter('all')">전체</button>
+                <button class="vc-filter" data-filter="new" onclick="vcSetFilter('new')">안 배운</button>
                 <button class="vc-filter" data-filter="learning" onclick="vcSetFilter('learning')">학습중</button>
                 <button class="vc-filter" data-filter="graduated" onclick="vcSetFilter('graduated')">졸업</button>
                 <button class="vc-filter" data-filter="confused" onclick="vcSetFilter('confused')">헷갈리는 단어</button>
                 <span class="vc-filter-count" id="vc-filter-count"></span>
               </div>
+              <div class="vc-search-row">
+                <label class="vc-select-all"><input type="checkbox" id="vc-select-all" onchange="vcSelectAll(this.checked)"> 보이는 단어 전체 선택</label>
+                <input type="search" id="vc-search-input" class="form-input vc-search-input" placeholder="🔍 단어나 뜻 검색"
+                       oninput="vcSetSearch(this.value)">
+              </div>
+              <div class="vc-bulk-bar" id="vc-bulk-bar" style="display:none"></div>
 
               <div class="fc-card-list" id="vc-word-list"></div>
             </div>
+
+            <!-- 설정 -->
+            <div id="vc-settings-view" style="display:none">
+              <div class="card vc-settings-card" id="vc-settings-card"></div>
+            </div>
+          </div>
 
             <aside class="vc-ai-panel">
               <div class="vc-ai-head">
                 <span class="vc-ai-icon">✨</span>
                 <div>
                   <div class="vc-ai-title">AI 단어 도우미</div>
-                  <div class="vc-ai-sub">영어든 한글이든 적으면 뜻을 찾아서 바로 추가해요</div>
+                  <div class="vc-ai-sub">단어 추천·추가·졸업·설정까지 말로 다 시켜요</div>
                 </div>
               </div>
               <div class="vc-ai-messages" id="vc-ai-messages"></div>
               <div class="vc-ai-input-area">
                 <textarea id="vc-ai-input" class="study-chat-input" rows="1"
-                  placeholder="예: apple, 용감한, run 달리다" onkeydown="vcAiKeydown(event)"></textarea>
+                  placeholder="예: 여행 단어 10개 줘 · brave 졸업 취소" onkeydown="vcAiKeydown(event)"></textarea>
                 <button class="study-send-btn" id="vc-ai-send" onclick="vcAiSend()">↑</button>
               </div>
             </aside>
-          </div>
         </div>
       </section>
 
