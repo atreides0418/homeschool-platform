@@ -1,0 +1,126 @@
+/* ============================================================
+   남색 + 살짝 갈색 도는 흰색 디자인
+   style.css 뒤에 불러와서 색·글꼴·모양만 덮어씀 (기능·구조는 그대로)
+   노을/달빛 테마를 고르면 그 테마 규칙이 계속 우선 적용됨
+   ============================================================ */
+:root {
+  --bg-body:        #F6F2EA;
+  --bg-card:        #FFFDF9;
+  --bg-sidebar:     #1F3157;
+  --bg-hover:       #F0EBE1;
+
+  --primary:        #1F3157;
+  --primary-dark:   #18264A;
+  --primary-light:  #8C9AB8;
+  --primary-soft:   #E7EAF2;
+
+  --text-dark:      #1B2740;
+  --text-mid:       #56607A;
+  --text-light:     #8F94A3;
+
+  --border:         #D3C9B7;
+  --border-light:   #E6DFD2;
+
+  --accent-warm:    #2B4273;
+  --accent-gold:    #D6B370;
+  --accent-brown:   #18264A;
+
+  --shadow-sm:  0 1px 2px rgba(31,49,87,.05), 0 4px 14px rgba(31,49,87,.04);
+  --shadow-md:  0 2px 6px rgba(31,49,87,.06), 0 10px 28px rgba(31,49,87,.07);
+  --shadow-lg:  0 14px 40px rgba(24,38,74,.18), 0 2px 6px rgba(24,38,74,.08);
+
+  --radius-sm: 9px;
+  --radius-md: 14px;
+  --radius-lg: 16px;
+
+  --on-navy: #FBF7EF;
+  --font-ui: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+}
+
+/* ---------- 글꼴·바탕 ---------- */
+html, body { font-family: var(--font-ui); word-break: keep-all; -webkit-font-smoothing: antialiased; }
+body:not(.sunset-theme):not(.moonlit-theme) { background: var(--bg-body); background-image: none; }
+button, input, textarea, select { font-family: var(--font-ui); }
+#sidebar::before { display: none; }
+
+/* ---------- 사이드바: 남색 ---------- */
+#sidebar { border-right: 0; }
+.sidebar-brand { border-bottom-color: rgba(255,255,255,.12); }
+.brand-name { color: var(--on-navy); font-weight: 800; letter-spacing: -0.02em; }
+.brand-sub { color: rgba(251,247,239,.55); }
+.nav-item { color: rgba(251,247,239,.72); font-weight: 600; }
+.nav-item:hover { background: rgba(255,255,255,.08); color: var(--on-navy); }
+.nav-item.active { background: var(--on-navy); color: var(--primary); box-shadow: none; }
+.nav-menu::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); }
+.sidebar-footer { border-top-color: rgba(255,255,255,.12); }
+.sidebar-level { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1); }
+.sidebar-level:hover { background: rgba(255,255,255,.12); }
+.sl-level { color: var(--on-navy); }
+.sl-bar { background: rgba(255,255,255,.16); }
+.sl-bar-fill { background: var(--accent-gold); }
+.sync-status-btn { color: rgba(251,247,239,.7); border-color: rgba(255,255,255,.25); }
+.sync-status-btn:hover { background: rgba(255,255,255,.08); }
+.sync-status-btn.ok { color: #A8D8B0; }
+.sync-status-btn.err { color: #F2A99A; }
+.sidebar-settings-btn { color: rgba(251,247,239,.7); border-color: rgba(255,255,255,.25); }
+.sidebar-settings-btn:hover { background: rgba(255,255,255,.08); color: var(--on-navy); }
+
+/* ---------- 제목·글씨: 진한 남색, 굵게 ---------- */
+.page-title, .home-date, .modal-title { font-weight: 800; letter-spacing: -0.02em; color: var(--primary-dark); }
+.cal-title, .hcard-title, .card-title { font-weight: 800; color: var(--primary-dark); }
+.page-subtitle, .home-greeting { color: var(--text-mid); }
+.hstat-val { font-weight: 800; color: var(--primary-dark); }
+.hstat-label { color: var(--text-mid); font-weight: 600; }
+
+/* ---------- 카드 ---------- */
+.card, .hcard, .calendar-card, .hstat, .home-quote-card { border-color: var(--border-light); box-shadow: var(--shadow-sm); }
+.hstat::before,
+.hstat-focus::before, .hstat-streak::before, .hstat-tasks::before, .hstat-level::before { background: var(--primary); width: 4px; }
+.hstat[onclick]:hover { transform: none; border-color: var(--primary-light); }
+.hq-mark { color: var(--primary-light); }
+.hq-text { color: var(--primary-dark); }
+
+/* ---------- 버튼·입력 ---------- */
+.btn-primary { background: var(--primary); color: var(--on-navy); font-weight: 700; }
+.btn-primary:hover { background: var(--accent-warm); transform: none; }
+.btn-action { background: var(--primary); color: var(--on-navy); }
+.btn-action:hover:not(:disabled) { transform: none; box-shadow: var(--shadow-md); background: var(--accent-warm); }
+.form-input, .form-textarea { border-width: 1px; border-color: var(--border); }
+.form-input:focus, .form-textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(31,49,87,.12); }
+.sync-btn.primary { color: var(--on-navy); }
+.checklist-new-input { min-width: 0; }
+
+/* ---------- 달력 ---------- */
+.cal-nav-btn { border-width: 1px; }
+.cal-nav-btn:hover { background: var(--primary-soft); color: var(--primary); }
+.cal-day:hover { background: var(--bg-hover); }
+.cal-day-num { font-weight: 700; }
+.cal-day.today .cal-day-num { background: var(--primary); color: var(--on-navy); box-shadow: none; animation: none; }
+.cal-day-drop-hover { background: var(--primary-soft); }
+
+/* ---------- 창·알림 ---------- */
+.modal-overlay { background: rgba(24,38,74,.4); backdrop-filter: none; }
+.modal-box { border-radius: 18px; animation: none; }
+.toast { background: var(--primary-dark); color: var(--on-navy); border-radius: 11px; }
+
+/* ---------- 강의 찾기 페이지: 주황 계열 → 남색·아이보리 ---------- */
+.vs-hero { background: var(--bg-body); border-bottom-color: var(--border-light); }
+.vs-hero::before { color: rgba(31,49,87,.04); }
+.vs-hero-badge { background: var(--primary-soft); color: var(--primary); border-color: #CDD3E2; }
+.vs-search-card { border-color: var(--border-light); box-shadow: var(--shadow-sm); }
+.vs-input::placeholder { color: var(--text-light); }
+.vs-divider-v { background: var(--border-light); }
+.vs-search-btn, .vs-search-btn:hover { background: var(--primary); box-shadow: none; color: var(--on-navy); }
+.vs-search-btn:hover { background: var(--accent-warm); }
+.vs-chip { background: var(--primary-soft); border-color: #CDD3E2; color: var(--primary); }
+.vs-chip:hover { background: #DCE1EC; border-color: var(--primary-light); }
+.vs-chip-x { color: var(--text-light); }
+.vs-card:hover { border-color: var(--primary-light); box-shadow: var(--shadow-md); }
+.vs-thumb-wrap { background: var(--bg-hover); }
+.vs-open-hint { color: var(--text-light); }
+.vs-spinner { border-color: var(--primary-soft); border-top-color: var(--primary); }
+.hd-line { background: linear-gradient(90deg, var(--primary-light), transparent); }
+
+/* ---------- 스크롤바 ---------- */
+#main::-webkit-scrollbar-thumb { background: var(--border); }
+#main::-webkit-scrollbar-thumb:hover { background: var(--primary-light); }

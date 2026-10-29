@@ -7,7 +7,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="theme-navy.css">
+  <link rel="stylesheet" href="subject-plans.css">
 </head>
 <body>
   <canvas id="particle-canvas"></canvas>
@@ -183,6 +186,9 @@
             </div>
           </div>
         </div>
+
+        <!-- 과목별 계획 (subject-plans.js) -->
+        <div id="sp-root" class="sp-root"></div>
       </section>
 
       <!-- ===== TIMER ===== -->
@@ -1004,5 +1010,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
   <script src="sync.js"></script>
   <script src="app.js"></script>
+  <script src="subject-plans.js"></script>
 </body>
 </html>
