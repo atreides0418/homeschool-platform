@@ -142,6 +142,10 @@ const SubjectPlans = (() => {
     book: '<path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5Z"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H19M9 7h6"/>',
     globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/>',
     tag: '<path d="M3 12V4h8l9 9-8 8Z"/><circle cx="7.5" cy="8" r="1.2"/>',
+    camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4Z"/><circle cx="12" cy="13" r="3.5"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    check: '<path d="m5 12 5 5 9-10"/>',
+    refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
   };
   const icon = (name, cls = '') => h('span', {
     class: 'sp-icon ' + cls, 'aria-hidden': 'true',
@@ -886,5 +890,11 @@ const SubjectPlans = (() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  return { render, reload: () => { load(); render(); } };
+  // 오답노트 등 다른 화면에서 같은 부품과 과목 목록을 쓰도록 공개
+  return {
+    render,
+    reload: () => { load(); render(); },
+    subjects: () => (data ? data.subjects.map(s => ({ ...s })) : []),
+    ui: { h, icon, iconBtn, modal, confirmBox, toast, field, segmented, autosize, isComposing, tone, ink, closePopover, ICONS },
+  };
 })();
