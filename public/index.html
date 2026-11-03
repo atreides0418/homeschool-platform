@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="theme-navy.css">
   <link rel="stylesheet" href="subject-plans.css">
   <link rel="stylesheet" href="wrong-notes.css">
+  <link rel="stylesheet" href="projects.css">
 </head>
 <body>
   <canvas id="particle-canvas"></canvas>
@@ -46,6 +47,9 @@
         <li class="nav-item" data-page="wrongnote">
           <span class="nav-icon">📝</span><span class="nav-label">오답노트</span>
         </li>
+        <li class="nav-item" data-page="projects">
+          <span class="nav-icon">🗂️</span><span class="nav-label">프로젝트</span>
+        </li>
         <li class="nav-item" data-page="cards">
           <span class="nav-icon">🔤</span><span class="nav-label">영어 단어</span>
         </li>
@@ -54,9 +58,6 @@
         </li>
         <li class="nav-item" data-page="games">
           <span class="nav-icon">🏀</span><span class="nav-label">미니 게임</span>
-        </li>
-        <li class="nav-item" data-page="video">
-          <span class="nav-icon">🎬</span><span class="nav-label">강의 찾기</span>
         </li>
       </ul>
 
@@ -477,6 +478,11 @@
         <div id="wn-root" class="sp-root wn-root"></div>
       </section>
 
+      <!-- ===== 프로젝트 (projects.js) ===== -->
+      <section id="page-projects" class="page">
+        <div id="pj-root" class="sp-root pj-root"></div>
+      </section>
+
       <section id="page-cards" class="page">
         <div class="page-header">
           <h1 class="page-title">🔤 영어 단어</h1>
@@ -788,50 +794,7 @@
       </section>
 
       <!-- ===== VIDEO SEARCH ===== -->
-      <section id="page-video" class="page">
-        <div class="vs-hero">
-          <div class="vs-hero-badge">🎬 강의 영상 찾기</div>
-          <h1 class="vs-hero-title">모르는 문제, 영상으로 해결해요</h1>
-          <p class="vs-hero-sub">교재명과 문제 번호를 입력하면 관련 강의를 바로 찾아드려요</p>
 
-          <div class="vs-search-card">
-            <div class="vs-inputs">
-              <div class="vs-input-group">
-                <label class="vs-label">📚 교재 이름</label>
-                <input id="vs-book" class="vs-input" type="text" placeholder="예: 쎈 수학 상" autocomplete="off">
-              </div>
-              <div class="vs-divider-v"></div>
-              <div class="vs-input-group">
-                <label class="vs-label">🔢 문제 번호</label>
-                <input id="vs-problem" class="vs-input" type="text" placeholder="예: 352번" autocomplete="off">
-              </div>
-            </div>
-            <button class="vs-search-btn" id="vs-search-btn" onclick="searchLectureVideos()">
-              <span class="vs-btn-icon">🔍</span><span>강의 찾기</span>
-            </button>
-          </div>
-
-          <div class="vs-chips" id="vs-chips"></div>
-        </div>
-
-        <div class="vs-results-wrap" id="vs-results-wrap" style="display:none">
-          <div class="vs-results-header">
-            <span class="vs-results-label" id="vs-results-label"></span>
-            <span class="vs-results-count" id="vs-results-count"></span>
-          </div>
-          <div class="vs-results-grid" id="vs-results-grid"></div>
-        </div>
-
-        <div class="vs-empty" id="vs-empty" style="display:none">
-          <div class="vs-empty-icon">🔭</div>
-          <p class="vs-empty-msg">검색 결과가 없어요. 교재명을 조금 다르게 입력해 보세요.</p>
-        </div>
-
-        <div class="vs-loading" id="vs-loading" style="display:none">
-          <div class="vs-spinner"></div>
-          <p>유튜브에서 강의를 찾고 있어요...</p>
-        </div>
-      </section>
 
     </main>
   </div>
@@ -1021,5 +984,6 @@
   <script src="app.js"></script>
   <script src="subject-plans.js"></script>
   <script src="wrong-notes.js"></script>
+  <script src="projects.js"></script>
 </body>
 </html>

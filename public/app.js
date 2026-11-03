@@ -83,7 +83,6 @@ const HOLIDAYS_KR = {
    ============================================================ */
 const OPENAI_KEY_STORAGE  = 'hs_openai_key';
 const YOUTUBE_KEY_STORAGE = 'hs_youtube_key';
-const VS_HISTORY_KEY      = 'hs_vs_history';
 const CAL_SCHEDULES_KEY   = 'hs_schedules_v2';
 
 // API 키는 사이드바 ⚙️ 설정에서 직접 입력하세요.
@@ -145,7 +144,6 @@ function navigate(page) {
   if (page === 'schedule') renderScheduleDate();
   if (page === 'priority') renderPriorityMatrix();
   if (page === 'study') renderStudyPage();
-  if (page === 'video') renderVsChips();
   if (page === 'games') {
     ensureBballInit();
     if (activeGame === 'firefly') { ensureFireflyInit(); ffResume(); }
@@ -3579,153 +3577,6 @@ function updateMemoStarVisibility(page) {
     closeCloverModal();
   }
 }
-
-/* ============================================================
-   VIDEO SEARCH — 강의 영상 찾기
-   ============================================================ */
-function vsShow(id, show) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  if (!show) { el.style.display = 'none'; return; }
-  el.style.display = (id === 'vs-results-wrap') ? 'block' : 'flex';
-}
-
-function renderVsChips() {
-  const history = JSON.parse(localStorage.getItem(VS_HISTORY_KEY) || '[]');
-  const wrap = document.getElementById('vs-chips');
-  if (!wrap) return;
-  if (!history.length) { wrap.innerHTML = ''; return; }
-
-  wrap.innerHTML = '<span class="vs-chip-label">최근 검색:</span>' +
-    history.slice(0, 5).map((q, i) => `
-      <span class="vs-chip" onclick="vsFromChip('${q.replace(/'/g,"\\'")}')">
-        🕐 ${q}
-        <span class="vs-chip-x" onclick="vsRemoveChip(event,${i})">✕</span>
-      </span>`).join('');
-}
-
-function vsAddHistory(query) {
-  let h = JSON.parse(localStorage.getItem(VS_HISTORY_KEY) || '[]');
-  h = [query, ...h.filter(q => q !== query)].slice(0, 8);
-  localStorage.setItem(VS_HISTORY_KEY, JSON.stringify(h));
-  renderVsChips();
-}
-
-function vsFromChip(query) {
-  // Split stored "교재 § 번호" format back
-  const [book, prob] = query.split(' § ');
-  document.getElementById('vs-book').value = book || query;
-  document.getElementById('vs-problem').value = prob || '';
-  searchLectureVideos();
-}
-
-function vsRemoveChip(e, idx) {
-  e.stopPropagation();
-  let h = JSON.parse(localStorage.getItem(VS_HISTORY_KEY) || '[]');
-  h.splice(idx, 1);
-  localStorage.setItem(VS_HISTORY_KEY, JSON.stringify(h));
-  renderVsChips();
-}
-
-async function searchLectureVideos() {
-  const book    = document.getElementById('vs-book').value.trim();
-  const problem = document.getElementById('vs-problem').value.trim();
-  if (!book) { document.getElementById('vs-book').focus(); return; }
-
-  const query = problem ? `${book} ${problem} 풀이 강의` : `${book} 풀이 강의`;
-  const histKey = problem ? `${book} § ${problem}` : book;
-
-  // UI state: loading
-  vsShow('vs-loading', true);
-  vsShow('vs-results-wrap', false);
-  vsShow('vs-empty', false);
-  const errEl = document.getElementById('vs-error');
-  if (errEl) errEl.remove();
-
-  const btn = document.getElementById('vs-search-btn');
-  btn.disabled = true;
-
-  const apiKey = localStorage.getItem(YOUTUBE_KEY_STORAGE);
-  const params = new URLSearchParams({
-    part:              'snippet',
-    q:                 query,
-    type:              'video',
-    order:             'relevance',
-    maxResults:        '8',
-    relevanceLanguage: 'ko',
-    videoEmbeddable:   'true',
-    videoCategoryId:   '27',   // Education
-    key:               apiKey
-  });
-
-  try {
-    const res  = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`);
-    const data = await res.json();
-
-    if (data.error) throw new Error(data.error.message);
-
-    vsShow('vs-loading', false);
-    btn.disabled = false;
-
-    const items = data.items || [];
-    if (!items.length) {
-      vsShow('vs-empty', true);
-      return;
-    }
-
-    vsAddHistory(histKey);
-
-    document.getElementById('vs-results-label').textContent =
-      `"${book}${problem ? ' ' + problem : ''}" 강의 검색 결과`;
-    document.getElementById('vs-results-count').textContent = `${items.length}개`;
-
-    document.getElementById('vs-results-grid').innerHTML = items.map(item => {
-      const vid     = item.id.videoId;
-      const title   = escHtml(htmlDecode(item.snippet.title));
-      const channel = escHtml(htmlDecode(item.snippet.channelTitle));
-      const thumb   = item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url || '';
-      const url     = `https://www.youtube.com/watch?v=${vid}`;
-      return `
-        <a class="vs-card" href="${url}" target="_blank" rel="noopener" title="${title}">
-          <div class="vs-thumb-wrap">
-            <img src="${thumb}" alt="" loading="lazy">
-            <div class="vs-play-overlay">
-              <div class="vs-play-icon">▶</div>
-            </div>
-          </div>
-          <div class="vs-info">
-            <div class="vs-video-title">${title}</div>
-            <div class="vs-channel">📺 ${channel}</div>
-            <div class="vs-meta">
-              <span class="vs-yt-badge">▶ YouTube</span>
-              <span class="vs-open-hint">클릭하면 유튜브로 이동해요</span>
-            </div>
-          </div>
-        </a>`;
-    }).join('');
-
-    vsShow('vs-results-wrap', true);
-
-  } catch (err) {
-    vsShow('vs-loading', false);
-    btn.disabled = false;
-    const wrap = document.querySelector('.vs-hero');
-    const errDiv = document.createElement('div');
-    errDiv.id = 'vs-error';
-    errDiv.className = 'vs-error';
-    errDiv.textContent = `검색 중 오류가 발생했어요: ${err.message}`;
-    document.getElementById('page-video').insertBefore(errDiv, document.querySelector('.vs-results-wrap'));
-  }
-}
-
-// Enter key on inputs triggers search
-document.addEventListener('DOMContentLoaded', () => {
-  ['vs-book','vs-problem'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') searchLectureVideos(); });
-  });
-  renderVsChips();
-});
 
 /* ============================================================
    CLOVER MOTIVATION

@@ -895,6 +895,6 @@ const SubjectPlans = (() => {
     render,
     reload: () => { load(); render(); },
     subjects: () => (data ? data.subjects.map(s => ({ ...s })) : []),
-    ui: { h, icon, iconBtn, modal, confirmBox, toast, field, segmented, autosize, isComposing, tone, ink, closePopover, ICONS },
+    ui: { h, icon, iconBtn, modal, confirmBox, toast, field, segmented, autosize, isComposing, tone, ink, popover, menu, closePopover, ICONS },
   };
 })();

@@ -103,24 +103,6 @@ button, input, textarea, select { font-family: var(--font-ui); }
 .modal-box { border-radius: 18px; animation: none; }
 .toast { background: var(--primary-dark); color: var(--on-navy); border-radius: 11px; }
 
-/* ---------- 강의 찾기 페이지: 주황 계열 → 남색·아이보리 ---------- */
-.vs-hero { background: var(--bg-body); border-bottom-color: var(--border-light); }
-.vs-hero::before { color: rgba(31,49,87,.04); }
-.vs-hero-badge { background: var(--primary-soft); color: var(--primary); border-color: #CDD3E2; }
-.vs-search-card { border-color: var(--border-light); box-shadow: var(--shadow-sm); }
-.vs-input::placeholder { color: var(--text-light); }
-.vs-divider-v { background: var(--border-light); }
-.vs-search-btn, .vs-search-btn:hover { background: var(--primary); box-shadow: none; color: var(--on-navy); }
-.vs-search-btn:hover { background: var(--accent-warm); }
-.vs-chip { background: var(--primary-soft); border-color: #CDD3E2; color: var(--primary); }
-.vs-chip:hover { background: #DCE1EC; border-color: var(--primary-light); }
-.vs-chip-x { color: var(--text-light); }
-.vs-card:hover { border-color: var(--primary-light); box-shadow: var(--shadow-md); }
-.vs-thumb-wrap { background: var(--bg-hover); }
-.vs-open-hint { color: var(--text-light); }
-.vs-spinner { border-color: var(--primary-soft); border-top-color: var(--primary); }
-.hd-line { background: linear-gradient(90deg, var(--primary-light), transparent); }
-
 /* ---------- 스크롤바 ---------- */
 #main::-webkit-scrollbar-thumb { background: var(--border); }
 #main::-webkit-scrollbar-thumb:hover { background: var(--primary-light); }
