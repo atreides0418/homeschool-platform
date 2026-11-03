@@ -447,3 +447,33 @@ body.sunset-theme .pj-root:not(.is-editor) .pj-h2, body.moonlit-theme .pj-root:n
 .pj-ai-model { flex: 1; min-width: 0; height: 32px; border: 1px solid var(--sp-line-strong); border-radius: 8px; background: #fff; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--sp-text); padding: 0 8px; cursor: pointer; }
 .pj-ai-changes { margin: 8px 0 0 !important; padding: 8px 10px !important; background: #E3F0EA; border-radius: 10px; font-size: 13px; color: #23593B; gap: 2px !important; }
 .pj-ai-changes.is-failed { background: #FBF0D9; color: #7A5612; }
+
+/* ---------- 문서 탭 (왼쪽 패널) ---------- */
+.pj-tabs-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.pj-tabs-head .pj-outline-title { margin: 0; }
+.pj-tab-add { width: 28px; height: 28px; border-radius: 8px; border: 0; background: transparent; font-size: 20px; line-height: 1; color: var(--sp-muted); cursor: pointer; }
+.pj-tab-add:hover { background: rgba(255,255,255,.75); color: var(--sp-navy); }
+.pj-doc-tabs { display: flex; flex-direction: column; gap: 2px; }
+.pj-doc-tab-row { display: flex; align-items: center; border-radius: 999px; transition: background .12s; }
+.pj-doc-tab-row:hover { background: rgba(255,255,255,.7); }
+.pj-doc-tab.is-active > .pj-doc-tab-row { background: #DCE3F1; }
+.pj-doc-tab-btn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; background: none; text-align: left; padding: 7px 4px 7px 12px; border-radius: 999px; font-family: inherit; font-size: 13.5px; font-weight: 600; color: var(--sp-text); cursor: pointer; }
+.pj-doc-tab.is-active .pj-doc-tab-btn { color: var(--sp-navy-deep); font-weight: 800; }
+.pj-doc-tab-icon { font-size: 14px; flex: none; }
+.pj-doc-tab-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pj-doc-tab-more { width: 26px; height: 26px; margin-right: 4px; opacity: 0; }
+.pj-doc-tab-row:hover .pj-doc-tab-more, .pj-doc-tab.is-active .pj-doc-tab-more, .pj-doc-tab-more:focus-visible { opacity: 1; }
+.pj-doc-tab .pj-outline-list { margin: 4px 0 10px 20px; padding-left: 6px; border-left: 1px solid var(--sp-line-strong); }
+.pj-doc-tab .pj-outline-empty { margin: 4px 0 10px 26px; font-size: 12px; }
+.pj-tab-input { flex: 1; min-width: 0; margin: 2px 4px 2px 6px; border: 1.5px solid var(--sp-navy); border-radius: 8px; padding: 5px 8px; font-family: inherit; font-size: 13.5px; font-weight: 700; color: var(--sp-navy-deep); background: #fff; outline: none; }
+
+/* 좁은 화면·탭 패널을 닫았을 때: 종이 위 가로 탭 줄 */
+.pj-tabstrip { display: none; max-width: 820px; margin: 0 auto 12px; gap: 6px; overflow-x: auto; padding: 2px; scrollbar-width: none; }
+.pj-tabstrip::-webkit-scrollbar { display: none; }
+.pj-editor:not(.has-outline) .pj-tabstrip { display: flex; }
+.pj-strip-tab { flex: none; max-width: 200px; border: 1px solid var(--sp-line-strong); background: #fff; border-radius: 999px; padding: 6px 14px; font-family: inherit; font-size: 13px; font-weight: 700; color: var(--sp-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.pj-strip-tab:hover { color: var(--sp-navy-deep); border-color: var(--sp-navy); }
+.pj-strip-tab.is-on { background: var(--sp-navy); border-color: var(--sp-navy); color: var(--sp-on-navy); }
+.pj-strip-add { flex: none; width: 32px; height: 32px; border-radius: 50%; border: 1px dashed var(--sp-line-strong); background: #fff; font-size: 18px; color: var(--sp-muted); cursor: pointer; }
+.pj-strip-add:hover { border-color: var(--sp-navy); color: var(--sp-navy); }
+@media (max-width: 1100px) { .pj-tabstrip { display: flex; } }

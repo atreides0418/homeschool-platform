@@ -99,6 +99,16 @@ const Projects = (() => {
   const fullTime = ts => { const d = new Date(ts); return `${d.getMonth() + 1}월 ${d.getDate()}일 ${clock(ts)}`; };
 
   /* ---------- 데이터 ---------- */
+  // 예전 문서(html 하나)는 '탭 1' 하나짜리 문서로 바꿔서 읽음
+  function normTabs(d) {
+    const seen = new Set();
+    const tabs = (Array.isArray(d.tabs) ? d.tabs : [])
+      .filter(t => isObj(t) && typeof t.id === 'string' && !seen.has(t.id) && seen.add(t.id))
+      .map(t => ({ id: t.id, title: str(t.title, 60) || '제목 없는 탭', html: typeof t.html === 'string' && t.html ? t.html : '<p><br></p>' }))
+      .slice(0, 60);
+    if (!tabs.length) tabs.push({ id: 'tab_' + d.id, title: '탭 1', html: typeof d.html === 'string' && d.html ? d.html : '<p><br></p>' });
+    return tabs;
+  }
   function normalize(raw) {
     const out = { version: 1, projects: [], docs: [] };
     if (!isObj(raw)) return out;
@@ -120,7 +130,7 @@ const Projects = (() => {
       if (!isObj(d) || typeof d.id !== 'string' || !pids.has(d.projectId)) continue;
       out.docs.push({
         id: d.id, projectId: d.projectId, title: str(d.title, 120) || '제목 없는 문서', emoji: str(d.emoji, 8) || '📄',
-        html: typeof d.html === 'string' ? d.html : '<p><br></p>', starred: !!d.starred, trashed: !!d.trashed,
+        tabs: normTabs(d), starred: !!d.starred, trashed: !!d.trashed,
         goal: Number.isInteger(d.goal) && d.goal > 0 ? Math.min(d.goal, 200000) : 0,
         chars: Number.isInteger(d.chars) ? d.chars : 0,
         createdAt: typeof d.createdAt === 'number' ? d.createdAt : Date.now(),
@@ -146,11 +156,24 @@ const Projects = (() => {
       return false;
     }
   }
-  function saveUi() { try { localStorage.setItem(UI_KEY, JSON.stringify({ filter: ui.filter, sort: ui.sort, outline: ui.outline, ai: ui.ai, aiModel: ui.aiModel })); } catch { /* 무시 */ } }
+  function saveUi() { try { localStorage.setItem(UI_KEY, JSON.stringify({ filter: ui.filter, sort: ui.sort, outline: ui.outline, ai: ui.ai, aiModel: ui.aiModel, tabs: ui.tabs })); } catch { /* 무시 */ } }
   function update(fn) { fn(data); save(); render(); }
 
   const projectById = id => data.projects.find(p => p.id === id);
   const docById = id => data.docs.find(d => d.id === id);
+  const tabsHtml = d => d.tabs.map(t => t.html).join(' ');
+  // 내보내기·인쇄용: 탭이 여러 개면 탭 이름을 큰 제목으로 넣어 한 문서로 이음
+  const allHtml = d => (d.tabs.length > 1 ? d.tabs.map(t => `<h1>${esc(t.title)}</h1>${t.html}`).join('') : d.tabs[0].html);
+  const newTab = (title, html) => ({ id: uid('tab'), title: String(title || '제목 없는 탭').slice(0, 60), html: html || '<p><br></p>' });
+  function addDoc(pid, title, emoji, tabs) {
+    const clean = tabs.map(t => ({ id: t.id || uid('tab'), title: String(t.title || '제목 없는 탭').slice(0, 60), html: sanitize(t.html || '') || '<p><br></p>' }));
+    const id = uid('doc');
+    data.docs.push({
+      id, projectId: pid, title: String(title || '제목 없는 문서').slice(0, 120), emoji: emoji || '📄', tabs: clean, starred: false, trashed: false, goal: 0,
+      chars: clean.reduce((n, t) => n + htmlToText(t.html).replace(/\s/g, '').length, 0), createdAt: Date.now(), updatedAt: Date.now(),
+    });
+    return id;
+  }
   const liveDocs = pid => data.docs.filter(d => d.projectId === pid && !d.trashed);
   const taskProgress = p => (p.tasks.length ? Math.round(p.tasks.filter(t => t.done).length / p.tasks.length * 100) : null);
   const touch = pid => { const p = projectById(pid); if (p) p.updatedAt = Date.now(); };
@@ -513,7 +536,6 @@ const Projects = (() => {
       // 이름을 비워 두고 자료만 올렸으면 첫 파일 이름으로 프로젝트 이름을 정함
       const n = name.value.trim() || (files[0] ? files[0].name.replace(/\.[^.]+$/, '').slice(0, 60) : '');
       if (!n) { error.textContent = '프로젝트 이름을 적어 주세요.'; name.focus(); return; }
-      if (files.length && !up.ai && !up.keep) { error.textContent = '자료를 원본이나 AI 정리본 중 하나로는 가져와야 해요.'; return; }
       const fields = { name: n, desc: desc.value.trim(), deadline: isDate(deadline.value) ? deadline.value : '', emoji: st.emoji, cover: st.cover, status: st.status, updatedAt: Date.now() };
       if (p) {
         update(d => { Object.assign(d.projects.find(x => x.id === p.id), fields); });
@@ -627,7 +649,7 @@ const Projects = (() => {
 
   function docCard(p, d) {
     const more = U.iconBtn('more', `${d.title} 메뉴`, e => { e.stopPropagation(); docMenu(e.currentTarget, d); }, { cls: 'pj-doc-more' });
-    const text = (d.html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    const text = tabsHtml(d).replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
     return h('li', null, h('div', {
       class: 'pj-doc-card', role: 'button', tabindex: '0',
       onclick: () => go({ view: 'editor', projectId: p.id, docId: d.id }),
@@ -636,7 +658,7 @@ const Projects = (() => {
       h('div', { class: 'pj-doc-paper', 'aria-hidden': 'true' }, h('span', { class: 'pj-doc-paper-emoji' }, d.emoji), h('p', null, text.slice(0, 140) || '빈 문서')),
       h('div', { class: 'pj-doc-info' },
         h('span', { class: 'pj-doc-title' }, d.starred ? '⭐ ' : '', d.title),
-        h('span', { class: 'pj-doc-meta' }, `${(d.chars || 0).toLocaleString()}자 · ${ago(d.updatedAt)}`)),
+        h('span', { class: 'pj-doc-meta' }, `${d.tabs.length > 1 ? `탭 ${d.tabs.length}개 · ` : ''}${(d.chars || 0).toLocaleString()}자 · ${ago(d.updatedAt)}`)),
       more));
   }
 
@@ -664,15 +686,20 @@ const Projects = (() => {
   async function duplicateDoc(id) {
     const d = docById(id);
     // 그림은 새 id로 복사해야 원본을 지워도 사본이 남음
-    let html = d.html;
-    for (const imgId of imageIdsIn(html)) {
-      const blob = await getImage(imgId);
-      if (!blob) continue;
-      const nid = uid('img');
-      await putImage(nid, blob).catch(() => null);
-      html = html.split(`data-pimg="${imgId}"`).join(`data-pimg="${nid}"`);
+    if (editorCtx && editorCtx.docId === id) flush();
+    const tabs = [];
+    for (const t of d.tabs) {
+      let html = t.html;
+      for (const imgId of imageIdsIn(html)) {
+        const blob = await getImage(imgId);
+        if (!blob) continue;
+        const nid = uid('img');
+        await putImage(nid, blob).catch(() => null);
+        html = html.split(`data-pimg="${imgId}"`).join(`data-pimg="${nid}"`);
+      }
+      tabs.push({ id: uid('tab'), title: t.title, html });
     }
-    update(x => { x.docs.push({ ...d, id: uid('doc'), title: `${d.title} (사본)`, html, starred: false, createdAt: Date.now(), updatedAt: Date.now() }); touch(d.projectId); });
+    update(x => { x.docs.push({ ...d, id: uid('doc'), title: `${d.title} (사본)`, tabs, starred: false, createdAt: Date.now(), updatedAt: Date.now() }); touch(d.projectId); });
     U.toast('사본을 만들었어요.');
   }
 
@@ -693,12 +720,11 @@ const Projects = (() => {
     m.setBody(
       h('button', { type: 'button', class: 'pj-import-banner', onclick: () => { m.close(); openImport(pid); } },
         h('span', { class: 'pj-import-banner-icon', 'aria-hidden': 'true' }, '📎'),
-        h('span', null, h('b', null, '자료 파일에서 만들기'), h('small', null, 'Word·PDF·PowerPoint·사진에서 내용을 뽑아 깔끔하게 정리해요')),
+        h('span', null, h('b', null, '자료 파일에서 만들기'), h('small', null, 'Word·PDF·PowerPoint·사진에서 내용을 뽑아 내용별 탭으로 정리해요')),
         h('span', { 'aria-hidden': 'true' }, '→')),
       h('p', { class: 'sp-modal-text sp-muted' }, '또는 틀을 골라 바로 쓰기 시작해요.'),
       h('div', { class: 'pj-template-grid' }, TEMPLATES.map(t => h('button', { type: 'button', class: 'pj-template', onclick: () => {
-        const id = uid('doc');
-        data.docs.push({ id, projectId: pid, title: t.id === 'blank' ? '제목 없는 문서' : t.name, emoji: t.emoji, html: t.html, starred: false, trashed: false, goal: 0, chars: 0, createdAt: Date.now(), updatedAt: Date.now() });
+        const id = addDoc(pid, t.id === 'blank' ? '제목 없는 문서' : t.name, t.emoji, [newTab('탭 1', t.html)]);
         touch(pid);
         save();
         m.close();
@@ -717,8 +743,7 @@ const Projects = (() => {
               const text = await askAI([{ role: 'system', content: AI_SYSTEM }, { role: 'user', content: `다음 문서의 개요를 만들어 줘. 첫 줄은 "# 문서 제목", 그다음은 "## 소제목"과 그 아래 "- 쓸 내용 힌트" 형식으로만 답해.\n주제: ${topic}` }], 700);
               const html = textToHtml(text);
               const title = (text.match(/^#\s+(.+)$/m) || [])[1] || topic.slice(0, 60);
-              const id = uid('doc');
-              data.docs.push({ id, projectId: pid, title: title.trim(), emoji: '✨', html: sanitize(html), starred: false, trashed: false, goal: 0, chars: 0, createdAt: Date.now(), updatedAt: Date.now() });
+              const id = addDoc(pid, title.trim(), '✨', [newTab('탭 1', html)]);
               touch(pid); save(); m.close();
               go({ view: 'editor', projectId: pid, docId: id });
             } catch (err) {
@@ -741,7 +766,7 @@ const Projects = (() => {
     async function purge(kind, id) {
       if (!await U.confirmBox('완전히 지우면 되살릴 수 없어요. 지울까요?', { title: '완전히 지우기', ok: '지우기', danger: true })) return;
       const docs = kind === 'p' ? data.docs.filter(d => d.projectId === id) : [docById(id)];
-      docs.forEach(d => { delImages(imageIdsIn(d.html)); delVersions(d.id); });
+      docs.forEach(d => { delImages(imageIdsIn(tabsHtml(d))); delVersions(d.id); });
       update(x => {
         if (kind === 'p') { x.projects = x.projects.filter(y => y.id !== id); x.docs = x.docs.filter(y => y.projectId !== id); }
         else x.docs = x.docs.filter(y => y.id !== id);
@@ -983,10 +1008,9 @@ const Projects = (() => {
     const d = docById(editorCtx.docId);
     if (!d) return;
     clearTimeout(editorCtx.saveTimer);
-    const html = serialize();
-    const s = textStats();
-    d.html = html;
-    d.chars = s.chars;
+    const tab = curTab(d);
+    tab.html = serialize();
+    d.chars = d.tabs.reduce((n, t) => n + (t === tab ? textStats().chars : htmlToText(t.html).replace(/\s/g, '').length), 0);
     d.updatedAt = Date.now();
     touch(d.projectId);
     editorCtx.dirty = false;
@@ -1006,30 +1030,26 @@ const Projects = (() => {
     if (!d) return;
     editorCtx.lastVersion = Date.now();
     const list = await getVersions(d.id);
-    if (list.length && list[0].html === d.html) return;
-    list.unshift({ at: Date.now(), title: d.title, html: d.html, chars: d.chars, label });
+    const tabs = d.tabs.map(t => ({ ...t }));
+    if (list.length && JSON.stringify(list[0].tabs || list[0].html) === JSON.stringify(tabs)) return;
+    list.unshift({ at: Date.now(), title: d.title, tabs, chars: d.chars, label });
     await setVersions(d.id, list.slice(0, MAX_VERSIONS));
   }
 
   /* 개요·상태줄 */
-  function drawOutline() {
-    if (!editorCtx || !editorCtx.outlineEl) return;
-    const heads = [...editor().querySelectorAll('h1, h2, h3')].filter(x => x.textContent.trim());
-    editorCtx.outlineEl.replaceChildren(heads.length
-      ? h('ul', { class: 'pj-outline-list' }, heads.map(x => h('li', { class: 'pj-outline-' + x.tagName.toLowerCase() },
-        h('button', { type: 'button', onclick: () => { x.scrollIntoView({ behavior: 'smooth', block: 'center' }); x.classList.add('pj-flash'); setTimeout(() => x.classList.remove('pj-flash'), 1200); } }, x.textContent.trim().slice(0, 60)))))
-      : h('p', { class: 'pj-outline-empty' }, '제목 1·2·3을 쓰면 여기에 목차가 생겨요.'));
-  }
+  function drawOutline() { drawTabs(); }
   function drawStatus() {
     if (!editorCtx || !editorCtx.statusEl) return;
     const d = docById(editorCtx.docId);
     const s = textStats();
     const goal = d.goal;
-    const pct = goal ? Math.min(100, Math.round(s.chars / goal * 100)) : 0;
+    const pct = goal ? Math.min(100, Math.round((d.chars || 0) / goal * 100)) : 0;
     setKids(editorCtx.statusEl,
-      h('span', null, `글자 ${s.chars.toLocaleString()}자`), h('span', { class: 'pj-dot' }, '·'),
+      h('span', null, `${d.tabs.length > 1 ? '이 탭 ' : ''}글자 ${s.chars.toLocaleString()}자`), h('span', { class: 'pj-dot' }, '·'),
       h('span', null, `단어 ${s.words.toLocaleString()}개`), h('span', { class: 'pj-dot' }, '·'),
       h('span', null, `읽는 시간 약 ${s.minutes}분`),
+      d.tabs.length > 1 && h('span', { class: 'pj-dot' }, '·'),
+      d.tabs.length > 1 && h('span', null, `문서 전체 ${(d.chars || 0).toLocaleString()}자 · 탭 ${d.tabs.length}개`),
       h('span', { class: 'sp-spacer' }),
       h('button', { type: 'button', class: 'pj-goal-btn', onclick: setGoal }, goal ? `목표 ${goal.toLocaleString()}자` : '🎯 글자 수 목표 정하기'),
       goal > 0 && h('span', { class: 'pj-goal-track', title: `${pct}%` }, h('span', { class: 'pj-goal-fill' + (pct >= 100 ? ' is-done' : ''), style: { width: pct + '%' } })),
@@ -1440,15 +1460,16 @@ const Projects = (() => {
       h('p', { class: 'sp-modal-text sp-muted' }, '5분마다, 그리고 Ctrl+S를 누를 때 이 기기에 버전이 남아요. 최근 30개까지 보관해요.'),
       h('button', { type: 'button', class: 'sp-btn', onclick: async () => { await snapshot('직접 저장'); m.close(); openVersions(); } }, U.icon('plus'), '지금 버전 남기기'),
       list.length ? h('ul', { class: 'pj-version-list' }, list.map((v, i) => h('li', { class: 'pj-version' },
-        h('div', { class: 'pj-version-text' }, h('span', { class: 'pj-version-time' }, fullTime(v.at)), h('span', { class: 'pj-version-sub' }, `${v.label || ''} · ${(v.chars || 0).toLocaleString()}자`)),
+        h('div', { class: 'pj-version-text' }, h('span', { class: 'pj-version-time' }, fullTime(v.at)), h('span', { class: 'pj-version-sub' }, `${v.label || ''} · ${(v.chars || 0).toLocaleString()}자${Array.isArray(v.tabs) && v.tabs.length > 1 ? ` · 탭 ${v.tabs.length}개` : ''}`)),
         h('button', { type: 'button', class: 'sp-btn sp-btn-sm sp-btn-ghost', onclick: () => previewVersion(v) }, '미리 보기'),
         h('button', { type: 'button', class: 'sp-btn sp-btn-sm', onclick: async () => {
           if (!await U.confirmBox(`${fullTime(v.at)} 버전으로 되돌릴까요? 지금 내용은 버전 기록에 먼저 남겨 둘게요.`, { title: '버전 되돌리기', ok: '되돌리기' })) return;
           await snapshot('되돌리기 전');
-          editor().innerHTML = sanitize(v.html);
-          applyImageWidths(editor());
-          await hydrateImages(editor());
-          afterChange(); flush();
+          const d2 = docById(editorCtx.docId);
+          if (Array.isArray(v.tabs) && v.tabs.length) d2.tabs = normTabs({ id: d2.id, tabs: v.tabs });
+          else curTab(d2).html = sanitize(v.html || '');
+          save();
+          await loadTab(d2.tabs.some(t => t.id === editorCtx.tabId) ? editorCtx.tabId : d2.tabs[0].id, { noFlush: true });
           m.close();
           U.toast('그 버전으로 되돌렸어요.');
         } }, '되돌리기')))) : h('p', { class: 'sp-empty' }, '아직 남은 버전이 없어요.'));
@@ -1456,7 +1477,7 @@ const Projects = (() => {
   async function previewVersion(v) {
     const m = U.modal(`${fullTime(v.at)} 버전`);
     const box = h('div', { class: 'pj-paper pj-paper-preview' });
-    box.innerHTML = sanitize(v.html);
+    box.innerHTML = sanitize(Array.isArray(v.tabs) ? (v.tabs.length > 1 ? v.tabs.map(t => `<h1>${esc(t.title)}</h1>${t.html}`).join('') : v.tabs[0].html) : v.html || '');
     applyImageWidths(box);
     m.setBody(box);
     await hydrateImages(box);
@@ -1533,8 +1554,24 @@ const Projects = (() => {
       err.noKey && h('button', { type: 'button', class: 'sp-btn sp-btn-sm', onclick: () => { if (typeof showSettingsModal === 'function') showSettingsModal(); } }, '설정 열기'));
   }
 
-  /* 문서를 AI 에게 보여 줄 마크다운 */
+  /* 문서를 AI 에게 보여 줄 마크다운 (지금 탭) */
   const docMarkdown = () => htmlToMarkdown(serialize(), { forAI: true });
+  // 다른 탭들도 남은 분량 안에서 함께 보여 줌
+  function otherTabsMarkdown(budget) {
+    const d = docById(editorCtx.docId);
+    const out = [];
+    for (const t of d.tabs) {
+      if (t.id === editorCtx.tabId || budget <= 0) continue;
+      const md = htmlToMarkdown(t.html, { forAI: true });
+      out.push(`==== 탭: ${t.title} ====\n${md.slice(0, budget)}`);
+      budget -= md.length;
+    }
+    return out.join('\n');
+  }
+  const findTab = (d, name) => {
+    const want = normText(name);
+    return d.tabs.find(t => normText(t.title) === want) || d.tabs.find(t => { const n = normText(t.title); return n && want && (n.includes(want) || want.includes(n)); });
+  };
 
   /* ---------- AI 직접 편집: AI 가 돌려준 actions 를 문서에 적용 ---------- */
   const normText = s => String(s || '').replace(/^#+\s*/, '').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -1572,7 +1609,13 @@ const Projects = (() => {
         return `제목을 '${short(tt)}'(으)로 바꿨어요`;
       }
       case 'replace_text': {
-        const ranges = findRanges(String(a.find || ''));
+        let ranges = findRanges(String(a.find || ''));
+        // 지금 탭에 없으면 그 글이 있는 다른 탭으로 옮겨 가서 고침
+        if (a.find && !ranges.length) {
+          const want = String(a.find).toLowerCase();
+          const other = d.tabs.find(t => t.id !== editorCtx.tabId && htmlToText(t.html).toLowerCase().includes(want));
+          if (other) { curTab(d).html = serialize(); loadTab(other.id, { noFlush: true }); ranges = findRanges(String(a.find)); }
+        }
         if (!a.find || !ranges.length) throw new Error(`'${short(a.find)}'을(를) 문서에서 찾지 못했어요`);
         const r = ranges[0];
         r.deleteContents();
@@ -1621,9 +1664,46 @@ const Projects = (() => {
       }
       case 'replace_document': {
         const fresh = mdNodes(a.markdown);
-        if (!fresh.length) throw new Error('새 문서 내용이 비어 있었어요.');
+        if (!fresh.length) throw new Error('새 내용이 비어 있었어요.');
         ed.replaceChildren(...fresh);
-        return '문서 전체를 새로 고쳐 썼어요';
+        return d.tabs.length > 1 ? '이 탭 내용을 새로 고쳐 썼어요' : '문서 전체를 새로 고쳐 썼어요';
+      }
+      /* 아래는 탭 단위 작업: 지금 종이 내용을 먼저 탭에 저장한 뒤 탭 목록을 바꿈 */
+      case 'add_tab': {
+        if (d.tabs.length >= 60) throw new Error('탭이 너무 많아서 더 만들 수 없어요');
+        const t = newTab(a.title || `탭 ${d.tabs.length + 1}`, sanitize(textToHtml(String(a.markdown || ''))));
+        d.tabs.push(t);
+        editorCtx.tabsChanged = true;
+        return `'${short(t.title)}' 탭을 만들었어요`;
+      }
+      case 'rename_tab': {
+        const t = a.tab ? findTab(d, a.tab) : curTab(d);
+        if (!t) throw new Error(`'${short(a.tab)}' 탭을 찾지 못했어요`);
+        const nt = String(a.title || '').trim().slice(0, 60);
+        if (!nt) throw new Error('새 탭 이름이 비어 있었어요');
+        const old = t.title;
+        t.title = nt;
+        editorCtx.tabsChanged = true;
+        return `'${short(old)}' 탭 이름을 '${short(nt)}'(으)로 바꿨어요`;
+      }
+      case 'delete_tab': {
+        const t = findTab(d, a.tab);
+        if (!t) throw new Error(`'${short(a.tab)}' 탭을 찾지 못했어요`);
+        if (d.tabs.length <= 1) throw new Error('탭이 하나뿐이라 지울 수 없어요');
+        const idx = d.tabs.indexOf(t);
+        d.tabs.splice(idx, 1);
+        // 지금 보던 탭을 지웠으면 옆 탭을 바로 종이에 올림 (뒤따르는 작업이 그 탭에 적용되도록)
+        if (t.id === editorCtx.tabId) loadTab(d.tabs[Math.max(0, idx - 1)].id, { noFlush: true });
+        editorCtx.tabsChanged = true;
+        return `'${short(t.title)}' 탭을 지웠어요`;
+      }
+      case 'set_tabs': {
+        const list = Array.isArray(a.tabs) ? a.tabs.filter(t => t && (t.title || t.markdown)).slice(0, 40) : [];
+        if (!list.length) throw new Error('새 탭 구성이 비어 있었어요');
+        d.tabs = list.map((t, i) => newTab(t.title || `탭 ${i + 1}`, sanitize(textToHtml(String(t.markdown || ''))) || '<p><br></p>'));
+        loadTab(d.tabs[0].id, { noFlush: true });
+        editorCtx.tabsChanged = true;
+        return `문서를 탭 ${d.tabs.length}개로 다시 정리했어요`;
       }
       default:
         throw new Error(`'${a.type}' 작업은 할 수 없어요`);
@@ -1632,12 +1712,20 @@ const Projects = (() => {
 
   async function applyActions(actions) {
     const d = docById(editorCtx.docId);
+    editorCtx.dirty = true;
     flush();
     await snapshot('AI 편집 전');
-    const before = { html: editor().innerHTML, title: d.title };
+    const before = { tabs: d.tabs.map(t => ({ ...t })), tabId: editorCtx.tabId, title: d.title };
     const done = [], failed = [];
-    for (const a of actions.slice(0, 25)) {
+    editorCtx.tabsChanged = false;
+    for (const a of actions.slice(0, 40)) {
       try { done.push(applyOne(a, d)); } catch (err) { failed.push(err.message); }
+    }
+    if (editorCtx.tabsChanged) {
+      recountChars(d);
+      d.updatedAt = Date.now();
+      save();
+      drawTabs();
     }
     if (done.length) {
       const ed = editor();
@@ -1655,13 +1743,16 @@ const Projects = (() => {
   async function undoAi(before, btn) {
     const d = docById(editorCtx.docId);
     if (!d) return;
+    editorCtx.dirty = true;
+    flush();
     await snapshot('AI 편집 되돌리기 전');
-    editor().innerHTML = before.html;
+    d.tabs = before.tabs.map(t => ({ ...t }));
     d.title = before.title;
+    recountChars(d);
+    d.updatedAt = Date.now();
+    save();
     if (editorCtx.titleInput) editorCtx.titleInput.value = before.title;
-    applyImageWidths(editor());
-    await hydrateImages(editor());
-    afterChange(); flush(); drawOutline(); drawStatus();
+    await loadTab(before.tabId, { noFlush: true });
     if (btn) { btn.disabled = true; btn.textContent = '되돌렸어요'; }
     U.toast('AI가 고치기 전으로 되돌렸어요.');
   }
@@ -1693,6 +1784,11 @@ const Projects = (() => {
 - {"type":"insert","where":"end | start | after_section","heading":"after_section 일 때 기준 소제목","markdown":"넣을 마크다운"}
 - {"type":"replace_selection","markdown":"고른 부분을 대신할 마크다운"}  ← 학생이 고른 부분이 있고 그 부분을 고치라는 뜻이면 이걸 써
 - {"type":"replace_document","markdown":"문서 전체 마크다운"}  ← 문서 전체를 새로 쓰라고 할 때만
+문서는 구글 문서처럼 여러 '탭'으로 나뉠 수 있어. 위 작업들은 지금 보고 있는 탭에만 적용돼. 탭을 다룰 때는:
+- {"type":"add_tab","title":"새 탭 이름","markdown":"탭 내용"}
+- {"type":"rename_tab","tab":"바꿀 탭 이름 (비우면 지금 탭)","title":"새 이름"}
+- {"type":"delete_tab","tab":"지울 탭 이름"}
+- {"type":"set_tabs","tabs":[{"title":"탭 이름","markdown":"내용"}, ...]}  ← "주제별로 탭을 나눠 줘"처럼 문서 전체를 탭으로 다시 정리할 때. 기존 내용을 빠짐없이 옮기고 그림 줄도 남겨
 규칙:
 - 학생이 시킨 부분만 바꾸고 나머지는 그대로 둬. 작은 수정은 replace_text 나 replace_section 을 써.
 - 그림 줄 ![..](pimg:..) 은 지우라고 하지 않는 한 그대로 남겨.
@@ -1709,7 +1805,7 @@ const Projects = (() => {
     const d = docById(editorCtx.docId);
     // 다듬기·맞춤법·쉽게·번역은 문서(또는 고른 부분)를 바로 고치고, 나머지는 답을 보여 준 뒤 넣을지 고름
     const transform = ['polish', 'spell', 'simple', 'en', 'ko'].includes(id);
-    const wait = waitBubble(`${a.label} · ${sel ? '고른 부분' : '문서 전체'}`);
+    const wait = waitBubble(`${a.label} · ${sel ? '고른 부분' : docById(editorCtx.docId).tabs.length > 1 ? '이 탭' : '문서 전체'}`);
     const fmt = whole ? '\n마크다운 구조(제목·목록·표·체크리스트·그림 줄)를 그대로 유지해서 마크다운으로만 답해.' : '';
     askAI([
       { role: 'system', content: AI_SYSTEM },
@@ -1737,7 +1833,8 @@ const Projects = (() => {
     editorCtx.aiRange = sel && editorCtx.range && !editorCtx.range.collapsed ? editorCtx.range.cloneRange() : null;
     const md = docMarkdown();
     const cut = md.length > AI_DOC_CHARS;
-    const context = `지금 문서 제목: ${d.title}\n${sel ? `학생이 고른 부분:\n"""\n${sel.slice(0, 6000)}\n"""\n` : '학생이 고른 부분: 없음\n'}${cut ? `(문서가 길어서 앞 ${AI_DOC_CHARS.toLocaleString()}자만 보여 줘)\n` : ''}---- 문서 (마크다운) ----\n${md.slice(0, AI_DOC_CHARS)}`;
+    const others = d.tabs.length > 1 ? otherTabsMarkdown(Math.max(4000, AI_DOC_CHARS - md.length)) : '';
+    const context = `지금 문서 제목: ${d.title}\n탭 목록: ${d.tabs.map((t, i) => `${i + 1}) ${t.title}${t.id === editorCtx.tabId ? ' ← 지금 보고 있는 탭' : ''}`).join(' / ')}\n${sel ? `학생이 고른 부분:\n"""\n${sel.slice(0, 6000)}\n"""\n` : '학생이 고른 부분: 없음\n'}${cut ? `(지금 탭이 길어서 앞 ${AI_DOC_CHARS.toLocaleString()}자만 보여 줘)\n` : ''}==== 지금 탭: ${curTab(d).title} (마크다운) ====\n${md.slice(0, AI_DOC_CHARS)}${others ? `\n\n(참고용 다른 탭들)\n${others}` : ''}`;
     const wait = waitBubble(text);
     editorCtx.aiMessages.push({ role: 'user', content: text });
     try {
@@ -1782,7 +1879,7 @@ const Projects = (() => {
   const fileName = (title, ext) => `${(title || '문서').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || '문서'}.${ext}`;
   function docHtmlFor(docId) {
     if (editorCtx && editorCtx.docId === docId) flush();
-    return docById(docId).html;
+    return allHtml(docById(docId));
   }
 
   async function printDoc(docId) {
@@ -2400,31 +2497,57 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
     throw new Error('지원하지 않는 파일 형식이에요.');
   }
 
+  // AI 정리: 내용 덩어리별 탭으로 나눈 문서를 JSON 으로 받음
   async function aiOrganize(name, ex) {
     const text = htmlToText(ex.html || '');
     const cut = text.length > AI_IMPORT_CHARS;
-    const rules = `다음은 학생이 올린 자료 "${name}"${ex.image ? '(사진)' : ''}의 내용이야. 공부와 프로젝트에 쓰기 좋게 깔끔한 문서로 정리해 줘.
+    const rules = `다음은 학생이 올린 자료 "${name}"${ex.image ? '(사진)' : ''}의 내용이야. 공부와 프로젝트에 쓰기 좋게, 내용별 '탭'으로 나눈 깔끔한 문서로 정리해 줘.
+반드시 아래 JSON 하나로만 답해:
+{"title": "문서 제목", "tabs": [{"title": "탭 이름 (2~12자)", "markdown": "탭 내용 (마크다운)"}]}
 규칙:
 - 자료에 없는 내용을 지어내지 말고, 중요한 내용은 빠뜨리지 마. ${ex.image ? '사진 속 글자를 먼저 정확히 읽어서 정리해.' : ''}
-- 첫 줄은 "# 문서 제목"
-- 그다음 줄은 "> 💡 한눈에 보기: " 로 시작하는 핵심 요약 2~3문장
-- 내용은 "## 소제목" 아래 "- 항목" 목록으로 정리하고, 비교·일정·수치가 있으면 마크다운 표(| 열 | 열 |)로 정리해
-- 자료에 할 일·준비물·과제가 있으면 "## 할 일" 아래 "- [ ] 항목" 체크리스트로
-- 중요한 낱말은 **굵게**
-- 어려운 낱말이 있으면 마지막에 "## 핵심 용어" 아래 "- **낱말**: 뜻" (없으면 생략)
-- 마크다운만 답해.`;
+- 첫 탭은 "한눈에 보기": "> 💡 " 로 시작하는 핵심 요약 2~3문장, 그 아래 주요 내용 목록
+- 그다음 탭들은 자료의 내용 덩어리(주제·단원·단계·장)마다 하나씩. 보통 3~8개
+- 탭 안에서는 "## 소제목", "- 항목"으로 정리하고, 비교·일정·수치는 마크다운 표(| 열 | 열 |)로
+- 할 일·준비물·과제·마감이 있으면 "할 일" 탭에 "- [ ] 항목" 체크리스트로
+- 어려운 낱말이 있으면 마지막 "핵심 용어" 탭에 "- **낱말**: 뜻" (없으면 탭을 만들지 마)
+- 중요한 낱말은 **굵게**`;
     const content = ex.image
       ? [{ type: 'text', text: rules }, { type: 'image_url', image_url: { url: ex.image } }]
       : `${rules}\n\n---\n${text.slice(0, AI_IMPORT_CHARS)}`;
-    const md = await askAI([{ role: 'system', content: AI_SYSTEM }, { role: 'user', content }], 3500);
-    return { md, cut };
+    const raw = await askAI([{ role: 'system', content: AI_SYSTEM }, { role: 'user', content }], 6000, { json: true });
+    const parsed = parseJson(raw);
+    const tabs = parsed && Array.isArray(parsed.tabs) ? parsed.tabs.filter(t => t && (t.title || t.markdown)).slice(0, 30) : [];
+    if (!tabs.length) throw new Error('AI 정리 결과를 읽지 못했어요');
+    return { title: typeof parsed.title === 'string' ? parsed.title.trim() : '', tabs, cut };
   }
 
-  function createDoc(pid, title, emoji, html) {
-    const clean = sanitize(html) || '<p><br></p>';
-    const id = uid('doc');
-    data.docs.push({ id, projectId: pid, title: (title || '가져온 문서').slice(0, 120), emoji, html: clean, starred: false, trashed: false, goal: 0, chars: htmlToText(clean).replace(/\s/g, '').length, createdAt: Date.now(), updatedAt: Date.now() });
-    return id;
+  // AI 없이 가져올 때: 파일 안의 큰 제목(또는 슬라이드)마다 탭으로 나눔
+  function splitIntoTabs(html, fallbackTitle) {
+    const t = document.createElement('template');
+    t.innerHTML = sanitize(html);
+    const nodes = [...t.content.childNodes];
+    const split = tag => {
+      const tabs = [];
+      let cur = { title: '개요', parts: [] };
+      const push = () => {
+        const box = document.createElement('div');
+        cur.parts.forEach(n => box.append(n.cloneNode(true)));
+        if (htmlToText(box.innerHTML).trim() || box.querySelector('img')) tabs.push({ title: cur.title, html: box.innerHTML });
+      };
+      for (const n of nodes) {
+        if (n.nodeType === 1 && n.tagName === tag) { push(); cur = { title: n.textContent.trim().slice(0, 60) || `탭 ${tabs.length + 1}`, parts: [] }; }
+        else cur.parts.push(n);
+      }
+      push();
+      return tabs;
+    };
+    // 큰 제목부터 시도해서, 내용 있는 탭이 2~30개 나오는 단계로 나눔
+    for (const tag of ['H1', 'H2', 'H3']) {
+      const tabs = split(tag);
+      if (tabs.length >= 2 && tabs.length <= 30) return tabs;
+    }
+    return [{ title: fallbackTitle, html: t.innerHTML }];
   }
 
   // 파일 고르기 상자 (끌어 놓기 지원). state: { files, ai, keep }
@@ -2449,8 +2572,8 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
     const aiBox = h('input', { type: 'checkbox', checked: state.ai, disabled: !hasKey, onchange: e => { state.ai = e.target.checked; } });
     const keepBox = h('input', { type: 'checkbox', checked: true, onchange: e => { state.keep = e.target.checked; } });
     const opts = h('div', { class: 'pj-up-opts', hidden: true },
-      h('label', { class: 'pj-up-opt' + (hasKey ? '' : ' is-off') }, aiBox, h('span', null, h('b', null, '✨ AI로 깔끔하게 정리한 문서 만들기'), h('small', null, hasKey ? '요약·소제목·표·할 일 체크리스트로 정리해요' : '설정에서 OpenAI 키를 저장하면 쓸 수 있어요'))),
-      h('label', { class: 'pj-up-opt' }, keepBox, h('span', null, h('b', null, '📎 뽑은 원본 내용도 문서로 남기기'), h('small', null, '파일 내용을 그대로 옮긴 문서예요'))));
+      h('label', { class: 'pj-up-opt' + (hasKey ? '' : ' is-off') }, aiBox, h('span', null, h('b', null, '✨ AI가 내용별 탭으로 정리하기'), h('small', null, hasKey ? '한눈에 보기 · 주제별 탭 · 할 일 · 핵심 용어 탭으로 나눠요' : '설정에서 OpenAI 키를 저장하면 쓸 수 있어요. 지금은 파일의 큰 제목마다 탭으로 나눠요'))),
+      h('label', { class: 'pj-up-opt' }, keepBox, h('span', null, h('b', null, '📎 원본 내용도 탭으로 남기기'), h('small', null, 'AI로 정리할 때 마지막 탭에 파일 내용을 그대로 넣어요'))));
     function add(files) {
       for (const f of files) {
         const kind = fileKind(f);
@@ -2496,30 +2619,32 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
       try {
         set('내용 뽑는 중…', 'is-run');
         const ex = await extractFile(r.f);
-        let originalId = null;
-        const makeOriginal = () => {
-          originalId = createDoc(pid, `${base}`, emoji, `<div class="pj-callout">📎 '${esc(r.f.name)}' 파일에서 뽑은 원본 내용이에요.${ex.note ? ' ' + esc(ex.note) : ''}</div>${ex.html}`);
-          created.push(originalId);
-        };
-        if (keep || !ai) makeOriginal();
-        save();
+        const note = `<div class="pj-callout">📎 '${esc(r.f.name)}' 파일에서 뽑은 원본 내용이에요.${ex.note ? ' ' + esc(ex.note) : ''}</div>`;
+        let tabs = null, title = base, docEmoji = emoji, status = '', cls = 'is-ok';
         if (ai) {
-          set('AI가 정리하는 중…', 'is-run');
+          set('AI가 내용별 탭으로 정리하는 중…', 'is-run');
           try {
-            const { md, cut } = await aiOrganize(r.f.name, ex);
-            const title = ((md.match(/^#\s+(.+)$/m) || [])[1] || `${base} 정리`).trim();
-            const body = textToHtml(md.replace(/^#\s+.+\n?/m, ''));
-            const note = `<p><i>📎 '${esc(r.f.name)}'을(를) AI가 정리했어요.${cut ? ' 자료가 길어서 앞부분만 정리했어요. 전체 내용은 원본 문서에 있어요.' : ''} 틀린 곳이 없는지 원본과 한 번 비교해 보세요.</i></p>`;
-            created.push(createDoc(pid, title, '✨', body + note));
-            save();
-            set(keep ? '원본 + 정리본 완료' : '정리본 완료', 'is-ok');
+            const res = await aiOrganize(r.f.name, ex);
+            tabs = res.tabs.map(t => ({ title: String(t.title || '').trim() || '탭', html: textToHtml(String(t.markdown || '')) }));
+            tabs[0].html += `<p><i>✨ '${esc(r.f.name)}'을(를) AI가 내용별 탭으로 정리했어요.${res.cut ? ' 자료가 길어서 앞부분만 정리했어요.' : ''}${keep ? " 원본은 마지막 '📎 원본 자료' 탭에 있어요." : ''} 틀린 곳이 없는지 한 번 확인해 보세요.</i></p>`;
+            if (keep) tabs.push({ title: '📎 원본 자료', html: note + ex.html });
+            title = res.title || base;
+            docEmoji = '✨';
+            status = `탭 ${tabs.length}개로 정리 완료`;
           } catch (err) {
-            if (!originalId) { makeOriginal(); save(); }
-            set(`원본만 가져왔어요 · ${err.message}`, 'is-warn');
-            ok++;
-            continue;
+            tabs = null;
+            status = `원본만 가져왔어요 · ${err.message}`;
+            cls = 'is-warn';
           }
-        } else set('완료', 'is-ok');
+        }
+        if (!tabs) {
+          tabs = splitIntoTabs(ex.html, base);
+          tabs[0].html = note + tabs[0].html;
+          if (cls === 'is-ok') status = tabs.length > 1 ? `탭 ${tabs.length}개로 나눠 가져왔어요` : '완료';
+        }
+        created.push(addDoc(pid, title, docEmoji, tabs));
+        save();
+        set(status, cls);
         ok++;
       } catch (err) {
         set(err.message, 'is-err');
@@ -2532,7 +2657,7 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
       head.textContent = ok ? `${files.length}개 중 ${ok}개를 가져왔어요.` : '가져오지 못했어요. 파일을 확인해 주세요.';
       m.setFooter(h('span', { class: 'sp-spacer' }),
         h('button', { type: 'button', class: 'sp-btn', onclick: () => m.close() }, '닫기'),
-        created.length > 0 && h('button', { type: 'button', class: 'sp-btn sp-btn-primary', 'data-autofocus': true, onclick: () => { m.close(); go({ view: 'editor', projectId: pid, docId: created[created.length - 1] }); } }, ai ? '정리된 문서 열기' : '가져온 문서 열기'));
+        created.length > 0 && h('button', { type: 'button', class: 'sp-btn sp-btn-primary', 'data-autofocus': true, onclick: () => { m.close(); go({ view: 'editor', projectId: pid, docId: created[0] }); } }, '문서 열기'));
     } else {
       U.toast(ok ? `📎 자료 ${ok}개를 문서로 가져왔어요.` : '자료를 가져오지 못했어요.');
     }
@@ -2544,7 +2669,6 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
     const state = {};
     const go2 = () => {
       if (!state.files.length) { U.toast('파일을 먼저 골라 주세요.'); return; }
-      if (!state.ai && !state.keep) { U.toast('원본이나 AI 정리본 중 하나는 골라 주세요.'); return; }
       m.close();
       importFiles(pid, state.files.slice(), { ai: state.ai, keep: state.keep });
     };
@@ -2554,7 +2678,8 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
 
   /* ---------- 편집기 화면 ---------- */
   function renderEditor(p, d) {
-    editorCtx = { docId: d.id, projectId: p.id, urls: [], dirty: false, range: null, lastVersion: 0, slash: null };
+    const remembered = ui.tabs && ui.tabs[d.id];
+    editorCtx = { docId: d.id, projectId: p.id, tabId: d.tabs.some(t => t.id === remembered) ? remembered : d.tabs[0].id, urls: [], dirty: false, range: null, lastVersion: 0, slash: null };
     const title = h('input', {
       type: 'text', class: 'pj-title-input', value: d.title, maxlength: 120, 'aria-label': '문서 제목', placeholder: '제목 없는 문서',
       oninput: e => { d.title = e.target.value.trim() || '제목 없는 문서'; d.updatedAt = Date.now(); save(); setSaveState('saved'); },
@@ -2573,7 +2698,7 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
       h('span', { class: 'pj-crumb-sep', 'aria-hidden': 'true' }, '/'),
       emojiBtn, title, saveEl,
       h('div', { class: 'pj-ed-actions' },
-        h('button', { type: 'button', class: 'sp-btn sp-btn-sm sp-btn-ghost', onclick: () => { ui.outline = !ui.outline; saveUi(); editorCtx.shell.classList.toggle('has-outline', ui.outline); } }, '목차'),
+        h('button', { type: 'button', class: 'sp-btn sp-btn-sm sp-btn-ghost', title: '문서 탭·목차 보이기/숨기기', onclick: () => { ui.outline = !ui.outline; saveUi(); editorCtx.shell.classList.toggle('has-outline', ui.outline); } }, '탭'),
         h('button', { type: 'button', class: 'sp-btn sp-btn-sm sp-btn-ghost', onclick: openVersions }, '버전'),
         h('button', { type: 'button', class: 'sp-btn sp-btn-sm sp-btn-ghost', onclick: () => toggleFocus() }, '집중'),
         h('button', { type: 'button', class: 'sp-btn sp-btn-sm', onclick: e => exportMenu(e.currentTarget, d.id) }, U.icon('external'), '내보내기'),
@@ -2583,7 +2708,7 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
       class: 'pj-paper', contenteditable: 'true', spellcheck: 'true', role: 'textbox', 'aria-multiline': 'true', 'aria-label': '문서 본문',
       'data-placeholder': '여기에 쓰기 시작해요. / 를 누르면 블록 메뉴가 나와요.',
     });
-    page.innerHTML = sanitize(d.html || '<p><br></p>');
+    page.innerHTML = sanitize(curTab(d).html || '<p><br></p>');
     if (!page.innerHTML.trim()) page.innerHTML = '<p><br></p>';
     applyImageWidths(page);
     editorCtx.page = page;
@@ -2606,8 +2731,10 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
       U.iconBtn('x', '찾기 닫기', toggleFind));
     editorCtx.findEl = find;
 
-    const outline = h('div', { class: 'pj-outline-body' });
-    editorCtx.outlineEl = outline;
+    const tabsEl = h('div', { class: 'pj-tabs-body' });
+    editorCtx.tabsEl = tabsEl;
+    const strip = h('div', { class: 'pj-tabstrip', role: 'tablist', 'aria-label': '문서 탭' });
+    editorCtx.stripEl = strip;
     const status = h('div', { class: 'pj-status-bar' });
     editorCtx.statusEl = status;
 
@@ -2615,20 +2742,193 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
       top,
       h('div', { class: 'pj-toolbar-wrap' }, buildToolbar(), find),
       h('div', { class: 'pj-ed-body' },
-        h('nav', { class: 'pj-outline', 'aria-label': '목차' }, h('p', { class: 'pj-outline-title' }, '목차'), outline,
+        h('nav', { class: 'pj-outline', 'aria-label': '문서 탭' },
+          h('div', { class: 'pj-tabs-head' }, h('p', { class: 'pj-outline-title' }, '문서 탭'),
+            h('button', { type: 'button', class: 'pj-tab-add', title: '탭 추가', 'aria-label': '탭 추가', onclick: () => addTab() }, '+')),
+          tabsEl,
           h('div', { class: 'pj-tips' }, h('p', { class: 'pj-outline-title' }, '빠른 입력'),
             h('p', null, h('kbd', null, '/'), ' 블록 메뉴'), h('p', null, h('kbd', null, '#'), ' + 띄어쓰기 → 제목'),
             h('p', null, h('kbd', null, '-'), ' 목록 · ', h('kbd', null, '[]'), ' 체크'), h('p', null, h('kbd', null, 'Ctrl+S'), ' 버전 남기기'))),
-        h('div', { class: 'pj-paper-scroll' }, h('div', { class: 'pj-paper-sheet' }, page), status),
+        h('div', { class: 'pj-paper-scroll' }, strip, h('div', { class: 'pj-paper-sheet' }, page), status),
         buildAiPanel()));
     editorCtx.shell = shell;
     setTimeout(async () => {
       drawOutline(); drawStatus();
       await hydrateImages(page);
       snapshot('문서 열기');
-      if (!d.html || d.html === '<p><br></p>') page.focus();
+      if (curTab(d).html === '<p><br></p>') page.focus();
     });
     return shell;
+  }
+
+  /* ---------- 문서 탭 (구글 문서의 '문서 탭'처럼 왼쪽에서 여러 탭을 오가며 씀) ---------- */
+  function curTab(d) {
+    d = d || docById(editorCtx.docId);
+    return d.tabs.find(t => t.id === editorCtx.tabId) || d.tabs[0];
+  }
+  function rememberTab() {
+    if (!isObj(ui.tabs)) ui.tabs = {};
+    ui.tabs[editorCtx.docId] = editorCtx.tabId;
+    saveUi();
+  }
+  function recountChars(d) {
+    d.chars = d.tabs.reduce((n, t) => n + htmlToText(t.html).replace(/\s/g, '').length, 0);
+  }
+  // 다른 탭을 열기: 지금 탭을 먼저 저장하고, 고른 탭 내용을 종이에 올림
+  async function loadTab(tabId, { noFlush = false } = {}) {
+    if (!editorCtx) return;
+    if (!noFlush) flush();
+    const d = docById(editorCtx.docId);
+    editorCtx.tabId = d.tabs.some(t => t.id === tabId) ? tabId : d.tabs[0].id;
+    rememberTab();
+    closeSlash();
+    clearHits();
+    editorCtx.range = null;
+    const page = editor();
+    page.innerHTML = sanitize(curTab(d).html || '<p><br></p>');
+    if (!page.innerHTML.trim()) page.innerHTML = '<p><br></p>';
+    applyImageWidths(page);
+    drawTabs();
+    drawStatus();
+    const sc = document.getElementById('main');
+    if (sc) sc.scrollTop = 0;
+    await hydrateImages(page);
+  }
+
+  function drawTabs() {
+    if (!editorCtx || !editorCtx.tabsEl) return;
+    const d = docById(editorCtx.docId);
+    if (!d) return;
+    const heads = [...editor().querySelectorAll('h1, h2, h3')].filter(x => x.textContent.trim());
+    const outline = heads.length
+      ? h('ul', { class: 'pj-outline-list' }, heads.map(x => h('li', { class: 'pj-outline-' + x.tagName.toLowerCase() },
+        h('button', { type: 'button', onclick: () => { x.scrollIntoView({ behavior: 'smooth', block: 'center' }); x.classList.add('pj-flash'); setTimeout(() => x.classList.remove('pj-flash'), 1200); } }, x.textContent.trim().slice(0, 60)))))
+      : h('p', { class: 'pj-outline-empty' }, '제목 1·2·3을 쓰면 여기에 목차가 생겨요.');
+    setKids(editorCtx.tabsEl, h('ul', { class: 'pj-doc-tabs', role: 'tablist', 'aria-label': '문서 탭' }, d.tabs.map((t, i) => {
+      const active = t.id === editorCtx.tabId;
+      return h('li', { class: 'pj-doc-tab' + (active ? ' is-active' : '') },
+        h('div', { class: 'pj-doc-tab-row' },
+          h('button', {
+            type: 'button', role: 'tab', 'aria-selected': String(active), class: 'pj-doc-tab-btn', title: `${t.title} (두 번 눌러 이름 바꾸기)`,
+            onclick: () => { if (!active) loadTab(t.id); },
+            ondblclick: e => renameTab(t.id, e.currentTarget),
+          }, h('span', { class: 'pj-doc-tab-icon', 'aria-hidden': 'true' }, '📄'), h('span', { class: 'pj-doc-tab-name' }, t.title)),
+          U.iconBtn('more', `${t.title} 탭 메뉴`, e => tabMenu(e.currentTarget, t.id, i), { cls: 'pj-doc-tab-more' })),
+        active && outline);
+    })));
+    // 좁은 화면에서는 왼쪽 패널 대신 종이 위 가로 탭 줄을 씀
+    if (editorCtx.stripEl) {
+      setKids(editorCtx.stripEl, d.tabs.map((t, i) => h('button', {
+        type: 'button', role: 'tab', 'aria-selected': String(t.id === editorCtx.tabId), class: 'pj-strip-tab' + (t.id === editorCtx.tabId ? ' is-on' : ''),
+        onclick: e => { if (t.id !== editorCtx.tabId) loadTab(t.id); else tabMenu(e.currentTarget, t.id, i); },
+      }, t.title)), h('button', { type: 'button', class: 'pj-strip-add', 'aria-label': '탭 추가', title: '탭 추가', onclick: () => addTab() }, '+'));
+    }
+  }
+
+  async function addTab(title, html, { switchTo = true } = {}) {
+    flush();
+    const d = docById(editorCtx.docId);
+    if (d.tabs.length >= 60) { U.toast('탭은 60개까지 만들 수 있어요.'); return null; }
+    const i = d.tabs.findIndex(t => t.id === editorCtx.tabId);
+    const t = newTab(title || `탭 ${d.tabs.length + 1}`, html ? sanitize(html) : '');
+    d.tabs.splice(i + 1, 0, t);
+    recountChars(d);
+    d.updatedAt = Date.now();
+    save();
+    if (switchTo) {
+      await loadTab(t.id, { noFlush: true });
+      if (!title) renameTab(t.id, editorCtx.tabsEl.querySelector('.pj-doc-tab.is-active .pj-doc-tab-btn'));
+    } else drawTabs();
+    return t;
+  }
+
+  // 이름 바꾸기: 왼쪽 패널이 보이면 그 자리에서, 아니면 작은 창으로
+  function renameTab(id, btn) {
+    const d = docById(editorCtx.docId);
+    const t = d.tabs.find(x => x.id === id);
+    if (!t) return;
+    const commit = v => { v = v.trim().slice(0, 60); if (v && v !== t.title) { t.title = v; d.updatedAt = Date.now(); save(); } drawTabs(); };
+    if (btn && btn.offsetParent) {
+      const input = h('input', { type: 'text', class: 'pj-tab-input', value: t.title, maxlength: 60, 'aria-label': '탭 이름' });
+      btn.replaceWith(input);
+      input.focus();
+      input.select();
+      let done = false;
+      const finish = ok => { if (done) return; done = true; if (ok) commit(input.value); else drawTabs(); };
+      input.addEventListener('blur', () => finish(true));
+      input.addEventListener('keydown', e => {
+        if (U.isComposing(e)) return;
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); editor().focus(); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
+      });
+      return;
+    }
+    const m = U.modal('탭 이름 바꾸기');
+    const input = h('input', { type: 'text', class: 'sp-input', value: t.title, maxlength: 60, 'aria-label': '탭 이름' });
+    const ok = () => { commit(input.value); m.close(); };
+    m.setBody(h('form', { class: 'sp-form', onsubmit: e => { e.preventDefault(); ok(); } }, U.field('탭 이름', input)));
+    m.setFooter(h('span', { class: 'sp-spacer' }), h('button', { type: 'button', class: 'sp-btn', onclick: () => m.close() }, '취소'), h('button', { type: 'button', class: 'sp-btn sp-btn-primary', onclick: ok }, '저장'));
+  }
+
+  function tabMenu(anchor, id, i) {
+    const d = docById(editorCtx.docId);
+    const row = anchor.closest('.pj-doc-tab');
+    U.menu(anchor, [
+      { label: '이름 바꾸기', onClick: () => renameTab(id, row && row.querySelector('.pj-doc-tab-btn')) },
+      { label: '탭 복제', onClick: () => duplicateTab(id) },
+      { label: '위로 옮기기', disabled: i === 0, onClick: () => moveTab(i, -1) },
+      { label: '아래로 옮기기', disabled: i === d.tabs.length - 1, onClick: () => moveTab(i, 1) },
+      '-',
+      { label: '탭 삭제', danger: true, disabled: d.tabs.length <= 1, onClick: () => deleteTab(id) },
+    ]);
+  }
+  function moveTab(i, dir) {
+    flush();
+    const d = docById(editorCtx.docId);
+    const j = i + dir;
+    if (j < 0 || j >= d.tabs.length) return;
+    [d.tabs[i], d.tabs[j]] = [d.tabs[j], d.tabs[i]];
+    d.updatedAt = Date.now();
+    save();
+    drawTabs();
+  }
+  async function duplicateTab(id) {
+    flush();
+    const d = docById(editorCtx.docId);
+    const t = d.tabs.find(x => x.id === id);
+    if (!t) return;
+    let html = t.html;
+    for (const imgId of imageIdsIn(html)) {
+      const blob = await getImage(imgId);
+      if (!blob) continue;
+      const nid = uid('img');
+      await putImage(nid, blob).catch(() => null);
+      html = html.split(`data-pimg="${imgId}"`).join(`data-pimg="${nid}"`);
+    }
+    const copy = newTab(`${t.title} (사본)`, html);
+    d.tabs.splice(d.tabs.indexOf(t) + 1, 0, copy);
+    recountChars(d);
+    d.updatedAt = Date.now();
+    save();
+    await loadTab(copy.id, { noFlush: true });
+    U.toast('탭을 복제했어요.');
+  }
+  async function deleteTab(id) {
+    flush();
+    const d = docById(editorCtx.docId);
+    const idx = d.tabs.findIndex(x => x.id === id);
+    if (idx < 0 || d.tabs.length <= 1) return;
+    const t = d.tabs[idx];
+    const has = htmlToText(t.html).trim() || /<img/i.test(t.html);
+    if (has && !await U.confirmBox(`'${t.title}' 탭을 삭제할까요? 탭 안의 내용도 함께 지워져요. 버전 기록에서 되살릴 수 있어요.`, { title: '탭 삭제', ok: '삭제', danger: true })) return;
+    await snapshot('탭 삭제 전');
+    d.tabs.splice(idx, 1);
+    recountChars(d);
+    d.updatedAt = Date.now();
+    save();
+    if (editorCtx.tabId === id) await loadTab(d.tabs[Math.max(0, idx - 1)].id, { noFlush: true });
+    else drawTabs();
+    U.toast('탭을 삭제했어요.');
   }
 
   /* ---------- 화면 전환 ---------- */
