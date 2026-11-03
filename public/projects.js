@@ -14,7 +14,16 @@ const Projects = (() => {
   const KEY = 'hs_projects';
   const UI_KEY = 'pj_ui';
   const DB_NAME = 'hs-projects-local';
-  const AI_MODEL = 'gpt-4o-mini';
+  // 고를 수 있는 AI 모델 (영어 단어 AI와 같은 목록). 기본은 GPT-4.1
+  const AI_MODELS = {
+    'gpt-4.1': 'GPT-4.1 · 기본',
+    'gpt-5-mini': 'GPT-5 mini · 더 똑똑, 조금 느림',
+    'gpt-5': 'GPT-5 · 가장 똑똑, 느림',
+    'gpt-4.1-mini': 'GPT-4.1 mini · 빠르고 저렴',
+  };
+  const AI_DEFAULT_MODEL = 'gpt-4.1';
+  const AI_FALLBACK_MODEL = 'gpt-4.1-mini';
+  const AI_DOC_CHARS = 40000; // AI에게 보여 주는 문서 길이
   const MAX_VERSIONS = 30;
   const VERSION_EVERY = 5 * 60 * 1000;
   const EMOJIS = ['📁', '🚀', '🧪', '📚', '✏️', '🎨', '🧭', '🌱', '💡', '🔭', '🧩', '🎯', '📝', '🗺️', '🎵', '🏗️', '🌙', '⭐', '🔬', '📊', '🧠', '🌍', '🐾', '🎬'];
@@ -137,7 +146,7 @@ const Projects = (() => {
       return false;
     }
   }
-  function saveUi() { try { localStorage.setItem(UI_KEY, JSON.stringify({ filter: ui.filter, sort: ui.sort, outline: ui.outline, ai: ui.ai })); } catch { /* 무시 */ } }
+  function saveUi() { try { localStorage.setItem(UI_KEY, JSON.stringify({ filter: ui.filter, sort: ui.sort, outline: ui.outline, ai: ui.ai, aiModel: ui.aiModel })); } catch { /* 무시 */ } }
   function update(fn) { fn(data); save(); render(); }
 
   const projectById = id => data.projects.find(p => p.id === id);
@@ -265,29 +274,45 @@ const Projects = (() => {
   }
 
   /* ---------- AI ---------- */
-  async function askAI(messages, maxTokens = 900) {
+  const aiModel = () => (ui && AI_MODELS[ui.aiModel] ? ui.aiModel : AI_DEFAULT_MODEL);
+
+  // GPT-5 계열(추론 모델)은 temperature·max_tokens 대신 max_completion_tokens·reasoning_effort 를 씀
+  async function askAI(messages, maxTokens = 900, { json = false, model } = {}) {
     const apiKey = localStorage.getItem('hs_openai_key');
     if (!apiKey) {
       const e = new Error('AI 기능을 쓰려면 설정에서 OpenAI API 키를 먼저 저장해 주세요.');
       e.noKey = true;
       throw e;
     }
+    const use = model || aiModel();
+    const reasoning = /^(gpt-5|o\d)/.test(use);
+    const body = { model: use, messages };
+    if (reasoning) { body.max_completion_tokens = Math.max(8000, maxTokens * 4); body.reasoning_effort = 'low'; }
+    else { body.temperature = 0.5; body.max_tokens = maxTokens; }
+    if (json) body.response_format = { type: 'json_object' };
     let res;
     try {
       res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: AI_MODEL, temperature: 0.6, max_tokens: maxTokens, messages }),
+        body: JSON.stringify(body),
       });
     } catch { throw new Error('AI 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.'); }
-    const json = await res.json().catch(() => null);
+    const out = await res.json().catch(() => null);
     if (!res.ok) {
+      const msg = (out && out.error && out.error.message) || '';
+      // 이 계정에서 쓸 수 없는 모델이면 GPT-4.1 mini 로 한 번 더 시도
+      if ((res.status === 404 || (res.status === 400 && /model/i.test(msg)) || (res.status === 403 && /model/i.test(msg))) && use !== AI_FALLBACK_MODEL) {
+        U.toast(`${AI_MODELS[use] ? AI_MODELS[use].split(' · ')[0] : use} 모델을 쓸 수 없어서 GPT-4.1 mini로 대신 답할게요.`);
+        return askAI(messages, maxTokens, { json, model: AI_FALLBACK_MODEL });
+      }
       throw new Error(res.status === 401 ? 'API 키가 올바르지 않아요. 설정에서 키를 확인해 주세요.'
         : res.status === 429 ? '요청이 많거나 사용 한도에 도달했어요. 잠시 후 다시 시도해 주세요.'
           : 'AI 서버에서 오류가 났어요. 잠시 후 다시 시도해 주세요.');
     }
-    const text = json && json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
-    if (!text) throw new Error('AI 답을 읽지 못했어요. 다시 시도해 주세요.');
+    const choice = out && out.choices && out.choices[0];
+    const text = choice && choice.message && choice.message.content;
+    if (!text) throw new Error(choice && choice.finish_reason === 'length' ? 'AI 답이 너무 길어서 끊겼어요. 부탁을 조금 나눠서 해 주세요.' : 'AI 답을 읽지 못했어요. 다시 시도해 주세요.');
     return text.trim();
   }
   const AI_SYSTEM = '너는 학교에 다니지 않고 혼자 공부하는 학생 "지윤"의 프로젝트 문서 작업을 돕는 친절한 도우미야. 한국어 존댓말(해요체)로 간결하게 답해. 사실이 확실하지 않으면 그렇다고 말해. 학생이 스스로 생각하도록 돕되, 요청하면 직접 써 줘.';
@@ -297,7 +322,12 @@ const Projects = (() => {
     const lines = text.replace(/\r/g, '').split('\n');
     const out = [];
     let list = null;
-    const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, '$1<i>$2</i>');
+    const inline = s => esc(s)
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>')
+      .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/~~(.+?)~~/g, '<s>$1</s>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, '$1<i>$2</i>');
     const close = () => { if (list) { out.push(`</${list === 'check' ? 'ul' : list}>`); list = null; } };
     const isRow = s => /^\s*\|.*\|\s*$/.test(s);
     const cellsOf = s => s.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
@@ -320,7 +350,21 @@ const Projects = (() => {
         }
         continue;
       }
-      if ((m = line.match(/^>\s?(💡.*)$/u))) { close(); out.push(`<div class="pj-callout">${inline(m[1])}</div>`); continue; }
+      if ((m = line.match(/^>\s?(\p{Extended_Pictographic}.*)$/u))) { close(); out.push(`<div class="pj-callout">${inline(m[1])}</div>`); continue; }
+      // 그림 줄: ![설명](pimg:ID) 는 이 기기에 저장된 그림, ![설명](https://…) 는 인터넷 그림
+      if ((m = line.match(/^\s*!\[([^\]]*)\]\((pimg:[\w-]+|https?:\/\/[^)\s]+)\)\s*$/))) {
+        close();
+        out.push(m[2].startsWith('pimg:') ? `<img data-pimg="${esc(m[2].slice(5))}" alt="${esc(m[1])}">` : `<img src="${esc(m[2])}" alt="${esc(m[1])}">`);
+        continue;
+      }
+      if (/^```/.test(line)) {
+        close();
+        const code = [];
+        li++;
+        while (li < lines.length && !/^```/.test(lines[li])) { code.push(lines[li]); li++; }
+        out.push(`<pre>${esc(code.join('\n'))}</pre>`);
+        continue;
+      }
       if ((m = line.match(/^\s*[-*]\s+\[( |x|X)\]\s+(.*)$/))) { if (list !== 'check') { close(); out.push('<ul class="pj-check">'); list = 'check'; } out.push(`<li data-checked="${m[1] === ' ' ? 'false' : 'true'}">${inline(m[2])}</li>`); continue; }
       if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { close(); const lv = Math.min(3, m[1].length); out.push(`<h${lv}>${inline(m[2])}</h${lv}>`); continue; }
       if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) { close(); out.push('<hr>'); continue; }
@@ -1437,14 +1481,20 @@ const Projects = (() => {
 
   function buildAiPanel() {
     const log = h('div', { class: 'pj-ai-log', 'aria-live': 'polite' });
-    const input = U.autosize(h('textarea', { class: 'sp-input pj-ai-input', rows: 1, maxlength: 2000, placeholder: '문서에 대해 물어보거나 부탁해요', 'aria-label': 'AI에게 보낼 말' }));
+    const input = U.autosize(h('textarea', { class: 'sp-input pj-ai-input', rows: 1, maxlength: 4000, placeholder: '예: 결론을 더 설득력 있게 고쳐 줘 / 제목을 바꿔 줘', 'aria-label': 'AI에게 보낼 말' }));
     const send = () => { const t = input.value.trim(); if (!t) return; input.value = ''; input.dispatchEvent(new Event('input')); chat(t); };
     input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !U.isComposing(e)) { e.preventDefault(); send(); } });
+    const modelSel = h('select', {
+      class: 'pj-ai-model', 'aria-label': 'AI 모델', title: '더 똑똑한 모델일수록 느리고 요금이 더 들어요',
+      onchange: e => { ui.aiModel = e.target.value; saveUi(); U.toast(`${AI_MODELS[ui.aiModel].split(' · ')[0]}(으)로 바꿨어요.`); },
+    }, Object.entries(AI_MODELS).map(([v, t]) => h('option', { value: v }, t)));
+    modelSel.value = aiModel();
     const panel = h('aside', { class: 'pj-ai', 'aria-label': 'AI 도우미' },
       h('div', { class: 'pj-ai-head' },
         h('span', { class: 'pj-ai-orb', 'aria-hidden': 'true' }),
-        h('div', null, h('p', { class: 'pj-ai-title' }, 'AI 도우미'), h('p', { class: 'pj-ai-sub' }, '글을 고르면 그 부분만, 안 고르면 문서 전체를 봐요')),
+        h('div', { class: 'pj-ai-head-text' }, h('p', { class: 'pj-ai-title' }, 'AI 도우미'), h('p', { class: 'pj-ai-sub' }, '말로 부탁하면 문서를 직접 고쳐요 · 되돌리기 가능')),
         U.iconBtn('x', 'AI 도우미 닫기', () => toggleAi(false))),
+      h('label', { class: 'pj-ai-model-row' }, h('span', null, '모델'), modelSel),
       h('div', { class: 'pj-ai-actions' }, AI_ACTIONS.map(a => h('button', { type: 'button', class: 'pj-ai-chip', onmousedown: e => { e.preventDefault(); saveSelection(); }, onclick: () => runAiAction(a.id) }, a.label))),
       log,
       h('div', { class: 'pj-ai-compose' }, input, h('button', { type: 'button', class: 'sp-btn sp-btn-primary pj-ai-send', onmousedown: e => { e.preventDefault(); saveSelection(); }, onclick: send, 'aria-label': '보내기' }, '보내기')));
@@ -1455,8 +1505,8 @@ const Projects = (() => {
   }
   function aiWelcome() {
     editorCtx.aiLog.replaceChildren(h('div', { class: 'pj-ai-msg is-ai' },
-      h('p', null, '안녕하세요! 이 문서를 같이 다듬어 볼게요. 위의 버튼을 누르거나 이렇게 물어보세요.'),
-      h('ul', null, ['이 글에서 빠진 내용이 뭘까?', '결론을 더 설득력 있게 써 줘', '이 실험의 변인을 정리해 줘'].map(q => h('li', null, h('button', { type: 'button', class: 'pj-ai-suggest', onclick: () => chat(q) }, q))))));
+      h('p', null, '안녕하세요! 말로 부탁하면 이 문서를 제가 직접 고칠게요. 고친 뒤에는 언제든 되돌릴 수 있어요.'),
+      h('ul', null, ['결론 부분을 더 설득력 있게 고쳐 줘', '준비물을 표로 정리해 줘', '이 글에서 빠진 내용이 뭘까?'].map(q => h('li', null, h('button', { type: 'button', class: 'pj-ai-suggest', onmousedown: e => { e.preventDefault(); saveSelection(); }, onclick: () => chat(q) }, q))))));
   }
   function toggleAi(force) {
     const on = typeof force === 'boolean' ? force : !editorCtx.shell.classList.contains('has-ai');
@@ -1469,62 +1519,250 @@ const Projects = (() => {
     editorCtx.aiLog.scrollTop = editorCtx.aiLog.scrollHeight;
     return el;
   }
-  function aiResult(text, { canReplace }) {
-    const box = h('div', null,
-      h('div', { class: 'pj-ai-answer' }, ...text.split('\n').map(line => h('p', null, line || ' '))),
-      h('div', { class: 'pj-ai-use' },
-        canReplace && h('button', { type: 'button', class: 'sp-btn sp-btn-sm sp-btn-primary', onmousedown: e => e.preventDefault(), onclick: () => {
-          if (!editorCtx.range || editorCtx.range.collapsed) { U.toast('바꿀 부분을 먼저 골라 주세요.'); return; }
-          const sel = getSelection(); sel.removeAllRanges(); sel.addRange(editorCtx.range);
-          editor().focus();
-          document.execCommand('insertHTML', false, sanitize(textToHtml(text)));
-          afterChange(); U.toast('고른 부분을 바꿨어요.');
-        } }, '고른 부분 바꾸기'),
-        h('button', { type: 'button', class: 'sp-btn sp-btn-sm', onmousedown: e => e.preventDefault(), onclick: () => {
-          if (editorCtx.range) { const r = editorCtx.range.cloneRange(); r.collapse(false); editorCtx.range = r; }
-          insertHtmlAtCursor(sanitize(textToHtml(text)));
-          U.toast('문서에 넣었어요.');
-        } }, '문서에 넣기'),
-        h('button', { type: 'button', class: 'sp-btn sp-btn-sm sp-btn-ghost', onclick: () => { navigator.clipboard && navigator.clipboard.writeText(text).then(() => U.toast('복사했어요.'), () => U.toast('복사하지 못했어요.')); } }, '복사')));
-    return box;
+  const answerEl = text => h('div', { class: 'pj-ai-answer' }, ...text.split('\n').map(line => h('p', null, line || ' ')));
+  function copyBtn(text) {
+    return h('button', { type: 'button', class: 'sp-btn sp-btn-sm sp-btn-ghost', onclick: () => { navigator.clipboard && navigator.clipboard.writeText(text).then(() => U.toast('복사했어요.'), () => U.toast('복사하지 못했어요.')); } }, '복사');
   }
-  async function aiRun(userLabel, messages, opts) {
+  function waitBubble(label) {
     if (!editorCtx.shell.classList.contains('has-ai')) toggleAi(true);
-    aiBubble('user', h('p', null, userLabel));
-    const wait = aiBubble('ai', h('p', { class: 'pj-ai-typing' }, h('span'), h('span'), h('span')));
-    try {
-      const text = await askAI(messages);
-      wait.replaceChildren(aiResult(text, opts));
-      return text;
-    } catch (err) {
-      setKids(wait, h('p', { class: 'pj-ai-err' }, err.message),
-        err.noKey && h('button', { type: 'button', class: 'sp-btn sp-btn-sm', onclick: () => { if (typeof showSettingsModal === 'function') showSettingsModal(); } }, '설정 열기'));
-      return null;
-    } finally {
-      editorCtx.aiLog.scrollTop = editorCtx.aiLog.scrollHeight;
+    aiBubble('user', h('p', null, label));
+    return aiBubble('ai', h('p', { class: 'pj-ai-typing' }, h('span'), h('span'), h('span')));
+  }
+  function showAiError(el, err) {
+    setKids(el, h('p', { class: 'pj-ai-err' }, err.message),
+      err.noKey && h('button', { type: 'button', class: 'sp-btn sp-btn-sm', onclick: () => { if (typeof showSettingsModal === 'function') showSettingsModal(); } }, '설정 열기'));
+  }
+
+  /* 문서를 AI 에게 보여 줄 마크다운 */
+  const docMarkdown = () => htmlToMarkdown(serialize(), { forAI: true });
+
+  /* ---------- AI 직접 편집: AI 가 돌려준 actions 를 문서에 적용 ---------- */
+  const normText = s => String(s || '').replace(/^#+\s*/, '').replace(/[*_`~]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  function topHeadings() { return [...editor().children].filter(n => /^H[1-3]$/.test(n.tagName)); }
+  function findHeading(text) {
+    const want = normText(text);
+    if (!want) return null;
+    const heads = topHeadings();
+    return heads.find(x => normText(x.textContent) === want)
+      || heads.find(x => { const t = normText(x.textContent); return t.length > 1 && (t.includes(want) || want.includes(t)); });
+  }
+  function sectionOf(head) {
+    const lv = +head.tagName[1];
+    const nodes = [head];
+    let n = head.nextSibling;
+    while (n && !(n.nodeType === 1 && /^H[1-3]$/.test(n.tagName) && +n.tagName[1] <= lv)) { nodes.push(n); n = n.nextSibling; }
+    return nodes;
+  }
+  function mdNodes(md) {
+    const t = document.createElement('template');
+    t.innerHTML = sanitize(textToHtml(String(md || '')));
+    return [...t.content.childNodes];
+  }
+  const short = s => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > 24 ? s.slice(0, 24) + '…' : s; };
+
+  function applyOne(a, d) {
+    const ed = editor();
+    if (!a || typeof a !== 'object') throw new Error('알 수 없는 작업이 있었어요.');
+    switch (a.type) {
+      case 'set_title': {
+        const tt = String(a.title || '').trim().slice(0, 120);
+        if (!tt) throw new Error('새 제목이 비어 있었어요.');
+        d.title = tt;
+        if (editorCtx.titleInput) editorCtx.titleInput.value = tt;
+        return `제목을 '${short(tt)}'(으)로 바꿨어요`;
+      }
+      case 'replace_text': {
+        const ranges = findRanges(String(a.find || ''));
+        if (!a.find || !ranges.length) throw new Error(`'${short(a.find)}'을(를) 문서에서 찾지 못했어요`);
+        const r = ranges[0];
+        r.deleteContents();
+        if (a.replace) r.insertNode(document.createTextNode(String(a.replace)));
+        ed.normalize();
+        return `'${short(a.find)}' → '${short(a.replace)}'`;
+      }
+      case 'replace_section': {
+        const head = findHeading(a.heading);
+        if (!head) throw new Error(`'${short(a.heading)}' 소제목을 찾지 못했어요`);
+        const nodes = sectionOf(head);
+        nodes[0].before(...mdNodes(a.markdown));
+        nodes.forEach(n => n.remove());
+        return `'${short(a.heading)}' 부분을 고쳤어요`;
+      }
+      case 'delete_section': {
+        const head = findHeading(a.heading);
+        if (!head) throw new Error(`'${short(a.heading)}' 소제목을 찾지 못했어요`);
+        sectionOf(head).forEach(n => n.remove());
+        return `'${short(a.heading)}' 부분을 지웠어요`;
+      }
+      case 'insert': {
+        const fresh = mdNodes(a.markdown);
+        if (!fresh.length) throw new Error('넣을 내용이 비어 있었어요.');
+        if (a.where === 'start') ed.prepend(...fresh);
+        else if (a.where === 'after_section') {
+          const head = findHeading(a.heading);
+          if (!head) throw new Error(`'${short(a.heading)}' 소제목을 찾지 못했어요`);
+          const nodes = sectionOf(head);
+          nodes[nodes.length - 1].after(...fresh);
+        } else ed.append(...fresh);
+        return a.where === 'after_section' ? `'${short(a.heading)}' 뒤에 내용을 넣었어요` : a.where === 'start' ? '맨 앞에 내용을 넣었어요' : '맨 끝에 내용을 넣었어요';
+      }
+      case 'replace_selection': {
+        const r = editorCtx.aiRange;
+        if (!r || r.collapsed || !ed.contains(r.commonAncestorContainer)) throw new Error('고른 부분이 없어서 바꾸지 못했어요');
+        const fresh = mdNodes(a.markdown);
+        const blockOf = n => n && (n.nodeType === 1 ? n : n.parentElement).closest('p, li, td, th, h1, h2, h3, blockquote');
+        const frag = document.createDocumentFragment();
+        // 한 문단 안에서 고른 부분이면 글자만 바꿔 넣고, 여러 문단이면 블록째 넣음
+        if (fresh.length === 1 && fresh[0].nodeType === 1 && fresh[0].tagName === 'P' && blockOf(r.startContainer) === blockOf(r.endContainer)) frag.append(...fresh[0].childNodes);
+        else frag.append(...fresh);
+        r.deleteContents();
+        r.insertNode(frag);
+        return '고른 부분을 바꿨어요';
+      }
+      case 'replace_document': {
+        const fresh = mdNodes(a.markdown);
+        if (!fresh.length) throw new Error('새 문서 내용이 비어 있었어요.');
+        ed.replaceChildren(...fresh);
+        return '문서 전체를 새로 고쳐 썼어요';
+      }
+      default:
+        throw new Error(`'${a.type}' 작업은 할 수 없어요`);
     }
   }
+
+  async function applyActions(actions) {
+    const d = docById(editorCtx.docId);
+    flush();
+    await snapshot('AI 편집 전');
+    const before = { html: editor().innerHTML, title: d.title };
+    const done = [], failed = [];
+    for (const a of actions.slice(0, 25)) {
+      try { done.push(applyOne(a, d)); } catch (err) { failed.push(err.message); }
+    }
+    if (done.length) {
+      const ed = editor();
+      ed.querySelectorAll(':scope > br').forEach(b => b.remove());
+      if (!ed.firstChild) ed.innerHTML = '<p><br></p>';
+      applyImageWidths(ed);
+      await hydrateImages(ed);
+      afterChange();
+      flush();
+      drawOutline();
+      drawStatus();
+    }
+    return { done, failed, before };
+  }
+  async function undoAi(before, btn) {
+    const d = docById(editorCtx.docId);
+    if (!d) return;
+    await snapshot('AI 편집 되돌리기 전');
+    editor().innerHTML = before.html;
+    d.title = before.title;
+    if (editorCtx.titleInput) editorCtx.titleInput.value = before.title;
+    applyImageWidths(editor());
+    await hydrateImages(editor());
+    afterChange(); flush(); drawOutline(); drawStatus();
+    if (btn) { btn.disabled = true; btn.textContent = '되돌렸어요'; }
+    U.toast('AI가 고치기 전으로 되돌렸어요.');
+  }
+  function editResult(reply, res) {
+    return h('div', null,
+      reply && answerEl(reply),
+      res.done.length > 0 && h('ul', { class: 'pj-ai-changes' }, res.done.map(t => h('li', null, '✏️ ', t))),
+      res.failed.length > 0 && h('ul', { class: 'pj-ai-changes is-failed' }, res.failed.map(t => h('li', null, '⚠️ ', t))),
+      res.done.length > 0 && h('div', { class: 'pj-ai-use' }, h('button', { type: 'button', class: 'sp-btn sp-btn-sm', onclick: e => undoAi(res.before, e.currentTarget) }, '↩ 되돌리기')));
+  }
+  function parseJson(text) {
+    try { return JSON.parse(text); } catch { /* 아래에서 다시 */ }
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) { try { return JSON.parse(m[0]); } catch { /* 형식 오류 */ } }
+    return null;
+  }
+
+  const EDIT_RULES = `너는 학생이 지금 열어 둔 문서를 직접 고칠 수 있어. 문서는 마크다운으로 보여 줄게.
+(# 제목, - 목록, 1. 번호, - [ ] 체크리스트, | 표 |, > 💡 강조 상자, > 인용, ![설명](pimg:ID) 그림)
+반드시 아래 JSON 하나로만 답해:
+{"reply": "학생에게 할 말. 무엇을 바꿨는지 1~2문장 (해요체)", "actions": [ ... ]}
+학생이 질문만 하거나 의견을 물으면 reply 에 답하고 actions 는 빈 배열로 둬.
+학생이 고쳐 달라·바꿔 달라·넣어 달라·지워 달라·정리해 달라고 하면 반드시 actions 로 문서를 실제로 고쳐. 말로만 설명하고 끝내지 마.
+쓸 수 있는 action:
+- {"type":"set_title","title":"새 문서 제목"}
+- {"type":"replace_text","find":"문서에 그대로 있는 짧은 글(한 문단 안, 서식 기호 빼고)","replace":"바꿀 글"}
+- {"type":"replace_section","heading":"문서에 있는 소제목 글","markdown":"그 소제목 줄을 포함해서, 다음 같은 단계 소제목 전까지를 대신할 마크다운"}
+- {"type":"delete_section","heading":"문서에 있는 소제목 글"}
+- {"type":"insert","where":"end | start | after_section","heading":"after_section 일 때 기준 소제목","markdown":"넣을 마크다운"}
+- {"type":"replace_selection","markdown":"고른 부분을 대신할 마크다운"}  ← 학생이 고른 부분이 있고 그 부분을 고치라는 뜻이면 이걸 써
+- {"type":"replace_document","markdown":"문서 전체 마크다운"}  ← 문서 전체를 새로 쓰라고 할 때만
+규칙:
+- 학생이 시킨 부분만 바꾸고 나머지는 그대로 둬. 작은 수정은 replace_text 나 replace_section 을 써.
+- 그림 줄 ![..](pimg:..) 은 지우라고 하지 않는 한 그대로 남겨.
+- 문서에 없는 사실을 지어내지 마. 모르면 reply 에 솔직히 말해.
+- 소제목 단계(#, ##, ###)는 문서의 기존 구조를 따라.`;
+
   function runAiAction(id) {
     const a = AI_ACTIONS.find(x => x.id === id);
     const sel = selectionText();
-    const target = sel || docText();
-    if (!target) { U.toast('먼저 글을 조금 써 주세요.'); return; }
+    editorCtx.aiRange = sel && editorCtx.range && !editorCtx.range.collapsed ? editorCtx.range.cloneRange() : null;
+    const whole = !sel;
+    const target = sel || docMarkdown().slice(0, AI_DOC_CHARS);
+    if (!target.trim()) { U.toast('먼저 글을 조금 써 주세요.'); return; }
     const d = docById(editorCtx.docId);
-    aiRun(`${a.label} · ${sel ? '고른 부분' : '문서 전체'}`, [
+    // 다듬기·맞춤법·쉽게·번역은 문서(또는 고른 부분)를 바로 고치고, 나머지는 답을 보여 준 뒤 넣을지 고름
+    const transform = ['polish', 'spell', 'simple', 'en', 'ko'].includes(id);
+    const wait = waitBubble(`${a.label} · ${sel ? '고른 부분' : '문서 전체'}`);
+    const fmt = whole ? '\n마크다운 구조(제목·목록·표·체크리스트·그림 줄)를 그대로 유지해서 마크다운으로만 답해.' : '';
+    askAI([
       { role: 'system', content: AI_SYSTEM },
-      { role: 'user', content: `${a.prompt}\n\n문서 제목: ${d.title}\n---\n${target}` },
-    ], { canReplace: !!sel && id !== 'quiz' && id !== 'outline' && id !== 'continue' });
+      { role: 'user', content: `${a.prompt}${fmt}\n\n문서 제목: ${d.title}\n---\n${target}` },
+    ], whole && transform ? 8000 : 2000).then(async text => {
+      if (transform) {
+        const res = await applyActions([whole ? { type: 'replace_document', markdown: text } : { type: 'replace_selection', markdown: text }]);
+        wait.replaceChildren(editResult(res.done.length ? `'${a.label}' 작업을 마쳤어요.` : '', res));
+      } else {
+        const use = h('div', { class: 'pj-ai-use' },
+          h('button', { type: 'button', class: 'sp-btn sp-btn-sm sp-btn-primary', onclick: async e => {
+            e.currentTarget.disabled = true;
+            const res = await applyActions([{ type: 'insert', where: 'end', markdown: (id === 'quiz' ? '## 스스로 확인하는 질문\n' : id === 'summary' ? '## 요약\n' : '') + text }]);
+            use.replaceWith(editResult('', res));
+          } }, '문서 끝에 넣기'),
+          copyBtn(text));
+        wait.replaceChildren(h('div', null, answerEl(text), use));
+      }
+    }).catch(err => showAiError(wait, err)).finally(() => { editorCtx.aiLog.scrollTop = editorCtx.aiLog.scrollHeight; });
   }
+
   async function chat(text) {
     const d = docById(editorCtx.docId);
     const sel = selectionText();
+    editorCtx.aiRange = sel && editorCtx.range && !editorCtx.range.collapsed ? editorCtx.range.cloneRange() : null;
+    const md = docMarkdown();
+    const cut = md.length > AI_DOC_CHARS;
+    const context = `지금 문서 제목: ${d.title}\n${sel ? `학생이 고른 부분:\n"""\n${sel.slice(0, 6000)}\n"""\n` : '학생이 고른 부분: 없음\n'}${cut ? `(문서가 길어서 앞 ${AI_DOC_CHARS.toLocaleString()}자만 보여 줘)\n` : ''}---- 문서 (마크다운) ----\n${md.slice(0, AI_DOC_CHARS)}`;
+    const wait = waitBubble(text);
     editorCtx.aiMessages.push({ role: 'user', content: text });
-    const context = `문서 제목: ${d.title}\n${sel ? `학생이 고른 부분:\n${sel.slice(0, 4000)}\n\n` : ''}문서 내용(일부일 수 있음):\n${docText(9000)}`;
-    const answer = await aiRun(text, [
-      { role: 'system', content: AI_SYSTEM + '\n\n' + context },
-      ...editorCtx.aiMessages.slice(-8),
-    ], { canReplace: !!sel });
-    if (answer) editorCtx.aiMessages.push({ role: 'assistant', content: answer });
+    try {
+      const raw = await askAI([
+        { role: 'system', content: AI_SYSTEM + '\n\n' + EDIT_RULES },
+        { role: 'system', content: context },
+        ...editorCtx.aiMessages.slice(-12),
+      ], 8000, { json: true });
+      const parsed = parseJson(raw);
+      const reply = parsed && typeof parsed.reply === 'string' ? parsed.reply : (parsed ? '' : raw);
+      const actions = parsed && Array.isArray(parsed.actions) ? parsed.actions : [];
+      if (actions.length) {
+        const res = await applyActions(actions);
+        wait.replaceChildren(editResult(reply, res));
+        editorCtx.aiMessages.push({ role: 'assistant', content: `${reply}\n(실제로 한 일: ${res.done.join(', ') || '없음'}${res.failed.length ? ` / 못 한 일: ${res.failed.join(', ')}` : ''})` });
+      } else {
+        setKids(wait, h('div', null, answerEl(reply || '답을 읽지 못했어요.'), reply && h('div', { class: 'pj-ai-use' }, copyBtn(reply))));
+        editorCtx.aiMessages.push({ role: 'assistant', content: reply });
+      }
+    } catch (err) {
+      showAiError(wait, err);
+      editorCtx.aiMessages.pop();
+    } finally {
+      editorCtx.aiLog.scrollTop = editorCtx.aiLog.scrollHeight;
+    }
   }
 
   /* ---------- 내보내기 ---------- */
@@ -1573,8 +1811,16 @@ img{max-width:100%}ul.pj-check{list-style:none;padding-left:4pt}ul.pj-check li::
 
   function exportMarkdown(docId) {
     const d = docById(docId);
+    const md = `# ${d.title}\n\n` + htmlToMarkdown(docHtmlFor(docId), { shift: true });
+    downloadBlob(new Blob([md], { type: 'text/markdown;charset=utf-8' }), fileName(d.title, 'md'));
+    U.toast('마크다운 파일을 내려받았어요.');
+  }
+
+  // 문서 HTML → 마크다운. shift: 문서 제목을 # 로 쓰므로 본문 제목을 한 단계씩 내림 (내보내기용)
+  // forAI: 그림을 ![설명](pimg:ID) 로 남겨서 AI가 고쳐 써도 그림이 그대로 돌아오게 함
+  function htmlToMarkdown(html, { shift = false, forAI = false } = {}) {
     const box = document.createElement('div');
-    box.innerHTML = sanitize(docHtmlFor(docId));
+    box.innerHTML = sanitize(html);
     const inl = n => [...n.childNodes].map(c => {
       if (c.nodeType === 3) return c.nodeValue.replace(/ /g, ' ');
       if (c.nodeType !== 1) return '';
@@ -1585,14 +1831,15 @@ img{max-width:100%}ul.pj-check{list-style:none;padding-left:4pt}ul.pj-check li::
       if (t === 'CODE') return '`' + inner + '`';
       if (t === 'A') return `[${inner}](${c.getAttribute('href')})`;
       if (t === 'BR') return '  \n';
-      if (t === 'IMG') return `![${c.alt || '그림'}](${c.getAttribute('src') || ''})`;
+      if (t === 'IMG') return `![${c.alt || '그림'}](${c.getAttribute('data-pimg') ? (forAI ? 'pimg:' + c.getAttribute('data-pimg') : '') : c.getAttribute('src') || ''})`;
       return inner;
     }).join('');
-    const out = [`# ${d.title}`, ''];
+    const out = [];
     const walk = (n, depth = 0) => {
       for (const c of n.children) {
         const t = c.tagName;
-        if (/^H[1-3]$/.test(t)) out.push('#'.repeat(+t[1] + (t === 'H3' ? 0 : 1)) + ' ' + inl(c).trim(), '');
+        if (/^H[1-3]$/.test(t)) out.push('#'.repeat(+t[1] + (shift && t !== 'H3' ? 1 : 0)) + ' ' + inl(c).trim(), '');
+        else if (t === 'IMG') out.push(inl({ childNodes: [c] }), '');
         else if (t === 'UL' || t === 'OL') {
           [...c.children].forEach((li, i) => {
             const mark = c.classList.contains('pj-check') ? `- [${li.getAttribute('data-checked') === 'true' ? 'x' : ' '}]` : t === 'OL' ? `${i + 1}.` : '-';
@@ -1606,15 +1853,17 @@ img{max-width:100%}ul.pj-check{list-style:none;padding-left:4pt}ul.pj-check li::
         else if (t === 'PRE') out.push('```', c.textContent, '```', '');
         else if (t === 'HR') out.push('---', '');
         else if (t === 'TABLE') {
-          const rows = [...c.querySelectorAll('tr')].map(r => [...r.children].map(x => inl(x).trim().replace(/\|/g, '\\|') || ' '));
+          const rows = [...c.querySelectorAll('tr')].map(r => [...r.children].map(x => inl(x).replace(/\s*\n\s*/g, ' ').trim().replace(/\|/g, '\\|') || ' '));
           if (rows.length) { out.push('| ' + rows[0].join(' | ') + ' |', '|' + rows[0].map(() => ' --- ').join('|') + '|'); rows.slice(1).forEach(r => out.push('| ' + r.join(' | ') + ' |')); out.push(''); }
-        } else if (c.classList && c.classList.contains('pj-callout')) out.push('> ' + inl(c).trim(), '');
-        else { const s = inl(c).trim(); out.push(s, ''); }
+        } else if (c.classList && c.classList.contains('pj-callout')) {
+          const s = inl(c).replace(/\s*\n\s*/g, ' ').trim();
+          out.push('> ' + (/^\p{Extended_Pictographic}/u.test(s) ? s : '💡 ' + s), '');
+        } else if (t === 'DIV' && [...c.children].some(x => /^(P|H1|H2|H3|UL|OL|TABLE|BLOCKQUOTE|PRE|DIV)$/.test(x.tagName))) walk(c, depth);
+        else { const s = inl(c).trim(); if (s) out.push(s, ''); }
       }
     };
     walk(box);
-    downloadBlob(new Blob([out.join('\n').replace(/\n{3,}/g, '\n\n')], { type: 'text/markdown;charset=utf-8' }), fileName(d.title, 'md'));
-    U.toast('마크다운 파일을 내려받았어요.');
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
   }
 
   /* .docx 만들기: JSZip 으로 Word 파일(OOXML)을 직접 구성 */
@@ -2316,6 +2565,7 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
     } }, d.emoji);
     const saveEl = h('span', { class: 'pj-save is-saved' }, `저장됨 ${clock(d.updatedAt)}`);
     editorCtx.saveEl = saveEl;
+    editorCtx.titleInput = title;
 
     const top = h('div', { class: 'pj-ed-top' },
       h('button', { type: 'button', class: 'pj-crumb', onclick: () => go({ view: 'project', projectId: p.id }), title: '프로젝트로 돌아가기' },

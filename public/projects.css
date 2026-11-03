@@ -440,3 +440,10 @@ body.sunset-theme .pj-root:not(.is-editor) .pj-h2, body.moonlit-theme .pj-root:n
   .pj-cover-pick { grid-template-columns: repeat(4, 1fr); }
   .pj-trash-row { flex-wrap: wrap; }
 }
+
+/* AI 모델 고르기·편집 결과 */
+.pj-ai-head-text { min-width: 0; }
+.pj-ai-model-row { display: flex; align-items: center; gap: 8px; padding: 10px 12px 0; font-size: 12px; font-weight: 800; color: var(--sp-muted); }
+.pj-ai-model { flex: 1; min-width: 0; height: 32px; border: 1px solid var(--sp-line-strong); border-radius: 8px; background: #fff; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--sp-text); padding: 0 8px; cursor: pointer; }
+.pj-ai-changes { margin: 8px 0 0 !important; padding: 8px 10px !important; background: #E3F0EA; border-radius: 10px; font-size: 13px; color: #23593B; gap: 2px !important; }
+.pj-ai-changes.is-failed { background: #FBF0D9; color: #7A5612; }
