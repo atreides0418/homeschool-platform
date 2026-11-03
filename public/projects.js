@@ -298,12 +298,32 @@ const Projects = (() => {
     const out = [];
     let list = null;
     const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, '$1<i>$2</i>');
-    const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
-    for (const raw of lines) {
-      const line = raw.trimEnd();
+    const close = () => { if (list) { out.push(`</${list === 'check' ? 'ul' : list}>`); list = null; } };
+    const isRow = s => /^\s*\|.*\|\s*$/.test(s);
+    const cellsOf = s => s.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li].trimEnd();
       let m;
       if (!line.trim()) { close(); continue; }
-      if ((m = line.match(/^(#{1,3})\s+(.*)$/))) { close(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
+      // 마크다운 표: | a | b | 줄이 이어지면 표로 (|---| 구분 줄은 건너뜀)
+      if (isRow(line)) {
+        close();
+        const rows = [];
+        while (li < lines.length && isRow(lines[li])) {
+          if (!/^\s*\|?[\s:|-]+\|?\s*$/.test(lines[li])) rows.push(cellsOf(lines[li]));
+          li++;
+        }
+        li--;
+        if (rows.length) {
+          const cols = Math.max(...rows.map(r => r.length));
+          out.push('<table class="pj-table"><tbody>' + rows.map((r, ri) => '<tr>' + Array.from({ length: cols }, (_, ci) => `<td>${ri === 0 ? `<b>${inline(r[ci] || '')}</b>` : (inline(r[ci] || '') || '<br>')}</td>`).join('') + '</tr>').join('') + '</tbody></table>');
+        }
+        continue;
+      }
+      if ((m = line.match(/^>\s?(💡.*)$/u))) { close(); out.push(`<div class="pj-callout">${inline(m[1])}</div>`); continue; }
+      if ((m = line.match(/^\s*[-*]\s+\[( |x|X)\]\s+(.*)$/))) { if (list !== 'check') { close(); out.push('<ul class="pj-check">'); list = 'check'; } out.push(`<li data-checked="${m[1] === ' ' ? 'false' : 'true'}">${inline(m[2])}</li>`); continue; }
+      if ((m = line.match(/^(#{1,6})\s+(.*)$/))) { close(); const lv = Math.min(3, m[1].length); out.push(`<h${lv}>${inline(m[2])}</h${lv}>`); continue; }
+      if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) { close(); out.push('<hr>'); continue; }
       if ((m = line.match(/^\s*[-*•]\s+(.*)$/))) { if (list !== 'ul') { close(); out.push('<ul>'); list = 'ul'; } out.push(`<li>${inline(m[1])}</li>`); continue; }
       if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) { if (list !== 'ol') { close(); out.push('<ol>'); list = 'ol'; } out.push(`<li>${inline(m[1])}</li>`); continue; }
       if ((m = line.match(/^>\s?(.*)$/))) { close(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); continue; }
@@ -443,9 +463,13 @@ const Projects = (() => {
       const b = h('button', { type: 'button', class: 'pj-cover-swatch' + (k === st.cover ? ' is-on' : ''), style: coverStyle(k), title: c.name, 'aria-label': c.name, onclick: () => { st.cover = k; coverPick.querySelectorAll('.pj-cover-swatch').forEach(x => x.classList.toggle('is-on', x === b)); drawPreview(); } });
       return b;
     }));
+    const up = {};
     const submit = () => {
-      const n = name.value.trim();
+      const files = up.files || [];
+      // 이름을 비워 두고 자료만 올렸으면 첫 파일 이름으로 프로젝트 이름을 정함
+      const n = name.value.trim() || (files[0] ? files[0].name.replace(/\.[^.]+$/, '').slice(0, 60) : '');
       if (!n) { error.textContent = '프로젝트 이름을 적어 주세요.'; name.focus(); return; }
+      if (files.length && !up.ai && !up.keep) { error.textContent = '자료를 원본이나 AI 정리본 중 하나로는 가져와야 해요.'; return; }
       const fields = { name: n, desc: desc.value.trim(), deadline: isDate(deadline.value) ? deadline.value : '', emoji: st.emoji, cover: st.cover, status: st.status, updatedAt: Date.now() };
       if (p) {
         update(d => { Object.assign(d.projects.find(x => x.id === p.id), fields); });
@@ -456,13 +480,15 @@ const Projects = (() => {
         save();
         m.close();
         go({ view: 'project', projectId: id });
-        U.toast(`${st.emoji} '${n}' 프로젝트를 만들었어요.`);
+        if (files.length) importFiles(id, files.slice(), { ai: up.ai, keep: up.keep });
+        else U.toast(`${st.emoji} '${n}' 프로젝트를 만들었어요.`);
       }
     };
     m.setBody(h('form', { class: 'sp-form', onsubmit: e => { e.preventDefault(); submit(); } },
       preview,
       U.field('이름', name),
       U.field('설명', desc),
+      !p && U.field('자료 파일로 시작하기 (선택)', fileUploader(up), '수업 자료·과제 안내문·참고 문서를 올리면 내용을 뽑아 문서로 정리해 줘요. 이름을 비워 두면 파일 이름을 써요.'),
       h('div', { class: 'pj-row2' },
         U.field('상태', U.segmented(Object.entries(STATUS), st.status, v => { st.status = v; }, '상태')),
         U.field('마감일 (선택)', deadline)),
@@ -508,7 +534,10 @@ const Projects = (() => {
     const docList = h('section', { class: 'pj-docs' },
       h('div', { class: 'pj-section-head' },
         h('h2', { class: 'pj-h2' }, '문서'),
-        h('button', { type: 'button', class: 'sp-btn sp-btn-primary', onclick: () => openTemplatePicker(p.id) }, U.icon('plus'), '새 문서')),
+        h('div', { class: 'pj-head-btns' },
+          h('button', { type: 'button', class: 'sp-btn', onclick: () => openImport(p.id) }, '📎 자료 가져오기'),
+          h('button', { type: 'button', class: 'sp-btn sp-btn-primary', onclick: () => openTemplatePicker(p.id) }, U.icon('plus'), '새 문서'))),
+      h('p', { class: 'pj-drop-hint' }, '파일을 이 영역에 끌어다 놓아도 문서로 가져와요.'),
       docs.length
         ? h('ul', { class: 'pj-doc-grid' }, docs.map(d => docCard(p, d)))
         : h('div', { class: 'pj-empty pj-empty-sm' },
@@ -538,6 +567,17 @@ const Projects = (() => {
         U.iconBtn('x', '할 일 지우기', () => update(d => { d.projects.find(y => y.id === p.id).tasks.splice(i, 1); }))))) : h('p', { class: 'pj-muted' }, '프로젝트를 끝내기 위해 할 일을 적어 보세요.'),
       h('div', { class: 'pj-task-add' }, taskInput, h('button', { type: 'button', class: 'sp-btn', onclick: addTask }, '추가')));
 
+    // 프로젝트 화면 문서 영역에 파일을 끌어다 놓으면 바로 가져오기
+    docList.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); docList.classList.add('is-drop'); } });
+    docList.addEventListener('dragleave', e => { if (!docList.contains(e.relatedTarget)) docList.classList.remove('is-drop'); });
+    docList.addEventListener('drop', e => {
+      if (!e.dataTransfer.files.length) return;
+      e.preventDefault();
+      docList.classList.remove('is-drop');
+      const files = [...e.dataTransfer.files].filter(f => { const k = fileKind(f); return k && k !== 'hwp' && k !== 'old' && f.size <= IMPORT_MAX_MB * 1048576; }).slice(0, IMPORT_MAX_FILES);
+      if (!files.length) { U.toast('가져올 수 있는 파일이 없어요. (Word·PDF·PowerPoint·텍스트·사진)'); return; }
+      importFiles(p.id, files, { ai: !!localStorage.getItem('hs_openai_key'), keep: true });
+    });
     return h('div', { class: 'pj-project' }, banner, h('div', { class: 'pj-project-grid' }, docList, tasks));
   }
 
@@ -607,7 +647,11 @@ const Projects = (() => {
   function openTemplatePicker(pid) {
     const m = U.modal('새 문서 만들기');
     m.setBody(
-      h('p', { class: 'sp-modal-text sp-muted' }, '틀을 고르면 바로 쓸 수 있게 기본 구성이 들어가요.'),
+      h('button', { type: 'button', class: 'pj-import-banner', onclick: () => { m.close(); openImport(pid); } },
+        h('span', { class: 'pj-import-banner-icon', 'aria-hidden': 'true' }, '📎'),
+        h('span', null, h('b', null, '자료 파일에서 만들기'), h('small', null, 'Word·PDF·PowerPoint·사진에서 내용을 뽑아 깔끔하게 정리해요')),
+        h('span', { 'aria-hidden': 'true' }, '→')),
+      h('p', { class: 'sp-modal-text sp-muted' }, '또는 틀을 골라 바로 쓰기 시작해요.'),
       h('div', { class: 'pj-template-grid' }, TEMPLATES.map(t => h('button', { type: 'button', class: 'pj-template', onclick: () => {
         const id = uid('doc');
         data.docs.push({ id, projectId: pid, title: t.id === 'blank' ? '제목 없는 문서' : t.name, emoji: t.emoji, html: t.html, starred: false, trashed: false, goal: 0, chars: 0, createdAt: Date.now(), updatedAt: Date.now() });
@@ -1792,6 +1836,471 @@ ${styleP('Code', 'Code', '<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz
     downloadBlob(blob, fileName(d.title, 'docx'));
     U.toast('Word 문서(.docx)를 내려받았어요.');
     return blob;
+  }
+
+  /* ============================================================
+     자료 파일 가져오기: 파일에서 내용을 뽑아 문서로 만들고, AI 키가 있으면 깔끔한 정리본도 만듦
+     ============================================================ */
+  const IMPORT_MAX_FILES = 5;
+  const IMPORT_MAX_MB = 20;
+  const AI_IMPORT_CHARS = 30000;
+  const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/';
+  const IMPORT_ACCEPT = '.docx,.pdf,.pptx,.txt,.md,.markdown,.html,.htm,.csv,image/*';
+  const KINDS = {
+    docx: { label: 'Word', emoji: '📘' }, pdf: { label: 'PDF', emoji: '📕' }, pptx: { label: 'PPT', emoji: '📙' },
+    text: { label: '텍스트', emoji: '📄' }, md: { label: '마크다운', emoji: '📄' }, html: { label: '웹 문서', emoji: '🌐' },
+    csv: { label: '표(CSV)', emoji: '📊' }, image: { label: '사진', emoji: '🖼️' },
+  };
+  function fileKind(f) {
+    const ext = (f.name.match(/\.([^.]+)$/) || [])[1];
+    const e = ext ? ext.toLowerCase() : '';
+    if (e === 'docx') return 'docx';
+    if (e === 'pdf' || f.type === 'application/pdf') return 'pdf';
+    if (e === 'pptx') return 'pptx';
+    if (e === 'md' || e === 'markdown') return 'md';
+    if (e === 'html' || e === 'htm') return 'html';
+    if (e === 'csv') return 'csv';
+    if (e === 'txt' || f.type === 'text/plain') return 'text';
+    if (f.type.startsWith('image/') && !/svg/.test(f.type)) return 'image';
+    if (e === 'hwp' || e === 'hwpx') return 'hwp';
+    if (e === 'doc' || e === 'ppt') return 'old';
+    return '';
+  }
+  const scriptP = {};
+  function loadScript(src, globalName) {
+    if (window[globalName]) return Promise.resolve(window[globalName]);
+    if (!scriptP[src]) {
+      scriptP[src] = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = () => (window[globalName] ? resolve(window[globalName]) : reject(new Error('도구를 불러오지 못했어요.')));
+        s.onerror = () => { delete scriptP[src]; reject(new Error('인터넷 연결을 확인해 주세요. (파일 읽기 도구를 불러오지 못했어요)')); };
+        document.head.append(s);
+      });
+    }
+    return scriptP[src];
+  }
+  async function loadPdfJs() {
+    const lib = await loadScript(PDFJS_BASE + 'build/pdf.min.js', 'pdfjsLib');
+    lib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + 'build/pdf.worker.min.js';
+    return lib;
+  }
+  function htmlToText(html) {
+    const t = document.createElement('textarea');
+    t.innerHTML = html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(t[dh])>/gi, ' | ')
+      .replace(/<\/(p|h[1-6]|li|tr|blockquote|pre|div|table)>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '- ')
+      .replace(/<[^>]+>/g, '');
+    return t.value.replace(/\n{3,}/g, '\n\n').trim();
+  }
+  async function readText(file) {
+    const buf = await file.arrayBuffer();
+    let t = new TextDecoder('utf-8').decode(buf);
+    if ((t.match(/�/g) || []).length > 3) { try { t = new TextDecoder('euc-kr').decode(buf); } catch { /* utf-8 유지 */ } }
+    return t.replace(/^﻿/, '');
+  }
+  async function storeImageBlob(blob, name) {
+    const small = await shrinkImage(new File([blob], name, { type: blob.type || 'image/png' }));
+    const id = uid('img');
+    await putImage(id, small);
+    return id;
+  }
+
+  /* Word(.docx): 제목·목록·표·굵게·링크·그림까지 살려서 가져옴 */
+  async function extractDocx(file) {
+    const JSZip = await loadJSZip();
+    let zip;
+    try { zip = await JSZip.loadAsync(file); } catch { throw new Error('Word 파일을 열지 못했어요. 손상된 파일일 수 있어요.'); }
+    const read = async p => { const f = zip.file(p); return f ? f.async('string') : ''; };
+    const xml = s => new DOMParser().parseFromString(s || '<x/>', 'application/xml');
+    const docXml = await read('word/document.xml');
+    if (!docXml) throw new Error('Word 문서 내용을 찾지 못했어요.');
+    const kid = (el, name) => el && [...el.children].find(c => c.localName === name);
+    const kids = (el, name) => (el ? [...el.children].filter(c => c.localName === name) : []);
+    const val = el => el && (el.getAttribute('w:val') ?? el.getAttribute('val'));
+    const on = el => !!el && !['0', 'false', 'none'].includes(String(val(el)));
+
+    const rels = {};
+    for (const r of xml(await read('word/_rels/document.xml.rels')).getElementsByTagName('Relationship')) rels[r.getAttribute('Id')] = { target: r.getAttribute('Target') || '', external: r.getAttribute('TargetMode') === 'External' };
+    const styleName = {};
+    for (const s of xml(await read('word/styles.xml')).getElementsByTagName('w:style')) {
+      const n = s.getElementsByTagName('w:name')[0];
+      styleName[s.getAttribute('w:styleId')] = ((n && n.getAttribute('w:val')) || s.getAttribute('w:styleId') || '').toLowerCase();
+    }
+    const numAbs = {}, absFmt = {};
+    const numDoc = xml(await read('word/numbering.xml'));
+    for (const a of numDoc.getElementsByTagName('w:abstractNum')) {
+      const fm = {};
+      for (const l of a.getElementsByTagName('w:lvl')) fm[l.getAttribute('w:ilvl')] = val(l.getElementsByTagName('w:numFmt')[0]) || 'bullet';
+      absFmt[a.getAttribute('w:abstractNumId')] = fm;
+    }
+    for (const n of numDoc.getElementsByTagName('w:num')) numAbs[n.getAttribute('w:numId')] = val(n.getElementsByTagName('w:abstractNumId')[0]);
+
+    let images = 0;
+    async function image(el) {
+      const blip = el.getElementsByTagName('a:blip')[0];
+      const rid = blip && blip.getAttribute('r:embed');
+      if (!rid || !rels[rid] || images >= 30) return '';
+      const path = ('word/' + rels[rid].target).replace(/word\/\.\.\//, '');
+      const f = zip.file(path);
+      if (!f || !/\.(png|jpe?g|gif|bmp|webp)$/i.test(path)) return '';
+      const ext = path.split('.').pop().toLowerCase();
+      const blob = new Blob([await f.async('arraybuffer')], { type: 'image/' + (ext === 'jpg' ? 'jpeg' : ext) });
+      try { const id = await storeImageBlob(blob, path.split('/').pop()); images++; return `<img data-pimg="${id}" alt="">`; } catch { return ''; }
+    }
+    async function runs(p) {
+      let out = '';
+      for (const c of p.children) {
+        const ln = c.localName;
+        if (ln === 'r') {
+          const pr = kid(c, 'rPr');
+          let text = '';
+          for (const rc of c.children) {
+            if (rc.localName === 't') text += esc(rc.textContent);
+            else if (rc.localName === 'tab') text += ' ';
+            else if (rc.localName === 'br' || rc.localName === 'cr') text += '<br>';
+            else if (rc.localName === 'drawing' || rc.localName === 'pict') text += await image(rc);
+          }
+          if (!text) continue;
+          if (pr) {
+            if (on(kid(pr, 'b'))) text = `<b>${text}</b>`;
+            if (on(kid(pr, 'i'))) text = `<i>${text}</i>`;
+            if (on(kid(pr, 'u'))) text = `<u>${text}</u>`;
+            if (on(kid(pr, 'strike'))) text = `<s>${text}</s>`;
+          }
+          out += text;
+        } else if (ln === 'hyperlink') {
+          const r = rels[c.getAttribute('r:id')];
+          const inner = await runs(c);
+          out += r && r.external && /^https?:/i.test(r.target) ? `<a href="${esc(r.target)}">${inner}</a>` : inner;
+        } else if (['ins', 'smartTag', 'sdt', 'sdtContent', 'fldSimple', 'customXml'].includes(ln)) {
+          out += await runs(c);
+        }
+      }
+      return out;
+    }
+    const out = [];
+    let lists = []; // 열린 목록 태그들 (단계별)
+    const closeLists = (to = 0) => { while (lists.length > to) out.push(`</${lists.pop()}>`); };
+    async function blocks(els) {
+      for (const el of els) {
+        if (el.localName === 'sdt') { await blocks(kids(kid(el, 'sdtContent'), 'p').concat(kids(kid(el, 'sdtContent'), 'tbl'))); continue; }
+        if (el.localName === 'tbl') {
+          closeLists();
+          const rows = kids(el, 'tr');
+          const html = await Promise.all(rows.map(async tr => '<tr>' + (await Promise.all(kids(tr, 'tc').map(async tc => {
+            const span = val(kid(kid(tc, 'tcPr'), 'gridSpan'));
+            const parts = (await Promise.all(kids(tc, 'p').map(runs))).filter(x => x.replace(/<[^>]+>/g, '').trim() || x.includes('<img'));
+            return `<td${span && +span > 1 ? ` colspan="${+span}"` : ''}>${parts.join('<br>') || '<br>'}</td>`;
+          }))).join('') + '</tr>'));
+          if (rows.length) out.push(`<table class="pj-table"><tbody>${html.join('')}</tbody></table>`);
+          continue;
+        }
+        if (el.localName !== 'p') continue;
+        const pPr = kid(el, 'pPr');
+        const sname = styleName[val(kid(pPr, 'pStyle'))] || val(kid(pPr, 'pStyle')) || '';
+        const content = await runs(el);
+        const empty = !content.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, '').trim() && !content.includes('<img');
+        const numPr = kid(pPr, 'numPr');
+        if (numPr && !empty) {
+          const ilvl = Math.min(4, parseInt(val(kid(numPr, 'ilvl')) || '0', 10) || 0);
+          const fmt = (absFmt[numAbs[val(kid(numPr, 'numId'))]] || {})[ilvl] || 'bullet';
+          const tag = fmt === 'bullet' || fmt === 'none' ? 'ul' : 'ol';
+          closeLists(ilvl + 1);
+          if (lists.length === ilvl + 1 && lists[ilvl] !== tag) closeLists(ilvl);
+          while (lists.length < ilvl + 1) { out.push(`<${tag}>`); lists.push(tag); }
+          out.push(`<li>${content}</li>`);
+          continue;
+        }
+        closeLists();
+        if (empty) continue;
+        const jc = val(kid(pPr, 'jc'));
+        const align = jc === 'center' ? ' style="text-align: center"' : jc === 'right' || jc === 'end' ? ' style="text-align: right"' : '';
+        const hm = sname.match(/(?:heading|제목)\s*([1-6])/) || (/^[1-6]$/.test(val(kid(pPr, 'pStyle')) || '') ? [0, val(kid(pPr, 'pStyle'))] : null);
+        if (sname === 'title') out.push(`<h1${align}>${content}</h1>`);
+        else if (hm) { const lv = Math.min(3, +hm[1]); out.push(`<h${lv}${align}>${content}</h${lv}>`); }
+        else if (/quote|인용/.test(sname)) out.push(`<blockquote>${content}</blockquote>`);
+        else out.push(`<p${align}>${content}</p>`);
+      }
+    }
+    const body = xml(docXml).getElementsByTagName('w:body')[0];
+    await blocks(body ? [...body.children] : []);
+    closeLists();
+    const html = out.join('');
+    if (!htmlToText(html) && !images) throw new Error('Word 파일 안에서 글을 찾지 못했어요.');
+    return { html, note: images ? `그림 ${images}개도 함께 가져왔어요.` : '' };
+  }
+
+  /* PDF: 글자 크기로 제목을, 줄 간격으로 문단을 나눠서 가져옴 */
+  async function extractPdf(file) {
+    const lib = await loadPdfJs();
+    let pdf;
+    try {
+      pdf = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), cMapUrl: PDFJS_BASE + 'cmaps/', cMapPacked: true, standardFontDataUrl: PDFJS_BASE + 'standard_fonts/' }).promise;
+    } catch (e) {
+      throw new Error(e && e.name === 'PasswordException' ? '비밀번호가 걸린 PDF는 열 수 없어요.' : 'PDF를 열지 못했어요. 손상된 파일일 수 있어요.');
+    }
+    const pages = Math.min(pdf.numPages, 150);
+    const lines = [];
+    for (let n = 1; n <= pages; n++) {
+      const page = await pdf.getPage(n);
+      const tc = await page.getTextContent();
+      let cur = null;
+      for (const it of tc.items) {
+        if (typeof it.str !== 'string') continue;
+        const x = it.transform[4], y = it.transform[5];
+        const size = Math.abs(it.transform[3]) || it.height || 10;
+        if (it.str.trim()) {
+          if (!cur || Math.abs(y - cur.y) > size * 0.5) { cur = { y, size, text: '', endX: x, page: n }; lines.push(cur); }
+          else if (x - cur.endX > size * 0.2 && !/\s$/.test(cur.text) && !/^\s/.test(it.str)) cur.text += ' ';
+          cur.text += it.str;
+          cur.endX = x + (it.width || 0);
+          cur.size = Math.max(cur.size, size);
+        } else if (cur && it.str) cur.text += ' ';
+        if (it.hasEOL) cur = null;
+      }
+      page.cleanup();
+    }
+    const real = lines.filter(l => l.text.trim());
+    if (real.reduce((s, l) => s + l.text.trim().length, 0) < 20) throw new Error('글자를 뽑지 못했어요. 스캔한 그림 PDF일 수 있어요. 페이지를 사진으로 올리면 AI가 읽어 줄 수 있어요.');
+    const sizes = real.map(l => l.size).sort((a, b) => a - b);
+    const med = sizes[Math.floor(sizes.length / 2)];
+    const out = [];
+    let para = [];
+    let prev = null;
+    const flush = () => { if (para.length) { out.push(`<p>${esc(para.join(' ').replace(/\s+/g, ' ').trim())}</p>`); para = []; } };
+    for (const l of real) {
+      const t = l.text.trim();
+      if (prev && l.page !== prev.page && /[.!?다요。]$/.test(para.join(' ').trim())) flush();
+      if (l.size >= med * 1.3 && t.length <= 80) { flush(); const lv = l.size >= med * 1.7 ? 2 : 3; out.push(`<h${lv}>${esc(t)}</h${lv}>`); prev = l; continue; }
+      if (/^[•·▪◦●○■□➢►\-–]\s*/.test(t)) { flush(); out.push(`<ul><li>${esc(t.replace(/^[•·▪◦●○■□➢►\-–]\s*/, ''))}</li></ul>`); prev = l; continue; }
+      if (prev && prev.page === l.page && Math.abs(prev.y - l.y) > l.size * 1.9) flush();
+      para.push(t);
+      prev = l;
+    }
+    flush();
+    return { html: out.join('').replace(/<\/ul><ul>/g, ''), note: pdf.numPages > pages ? `PDF가 길어서 앞 ${pages}쪽까지만 가져왔어요.` : '' };
+  }
+
+  /* PowerPoint(.pptx): 슬라이드마다 제목과 내용 */
+  async function extractPptx(file) {
+    const JSZip = await loadJSZip();
+    let zip;
+    try { zip = await JSZip.loadAsync(file); } catch { throw new Error('PowerPoint 파일을 열지 못했어요.'); }
+    const num = n => parseInt(n.match(/(\d+)\.xml$/)[1], 10);
+    const slides = Object.keys(zip.files).filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a, b) => num(a) - num(b));
+    if (!slides.length) throw new Error('슬라이드를 찾지 못했어요.');
+    const out = [];
+    for (const [i, s] of slides.entries()) {
+      const doc = new DOMParser().parseFromString(await zip.file(s).async('string'), 'application/xml');
+      const paras = [...doc.getElementsByTagName('a:p')].map(p => [...p.getElementsByTagName('a:t')].map(t => t.textContent).join('').trim()).filter(Boolean);
+      if (!paras.length) continue;
+      out.push(`<h2>${i + 1}. ${esc(paras[0])}</h2>`);
+      if (paras.length > 1) out.push('<ul>' + paras.slice(1).map(x => `<li>${esc(x)}</li>`).join('') + '</ul>');
+    }
+    if (!out.length) throw new Error('슬라이드에서 글을 찾지 못했어요.');
+    return { html: out.join(''), note: `슬라이드 ${slides.length}장을 가져왔어요.` };
+  }
+
+  function parseCsv(text) {
+    const rows = [];
+    let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; } else if (ch === '"') q = false; else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ',') { row.push(cell); cell = ''; }
+      else if (ch === '\n') { row.push(cell.replace(/\r$/, '')); rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter(r => r.some(c => c.trim()));
+  }
+
+  async function extractFile(file) {
+    const kind = fileKind(file);
+    if (kind === 'docx') return extractDocx(file);
+    if (kind === 'pdf') return extractPdf(file);
+    if (kind === 'pptx') return extractPptx(file);
+    if (kind === 'md') return { html: textToHtml(await readText(file)) };
+    if (kind === 'text') {
+      const t = await readText(file);
+      return { html: t.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean).map(b => `<p>${esc(b).replace(/\n/g, '<br>')}</p>`).join('') };
+    }
+    if (kind === 'html') {
+      const doc = new DOMParser().parseFromString(await readText(file), 'text/html');
+      return { html: sanitize(doc.body ? doc.body.innerHTML : '') };
+    }
+    if (kind === 'csv') {
+      const rows = parseCsv(await readText(file)).slice(0, 300);
+      if (!rows.length) throw new Error('표 내용이 비어 있어요.');
+      const cols = Math.max(...rows.map(r => r.length));
+      return { html: '<table class="pj-table"><tbody>' + rows.map((r, i) => '<tr>' + Array.from({ length: cols }, (_, c) => `<td>${i === 0 ? `<b>${esc(r[c] || '')}</b>` : esc(r[c] || '') || '<br>'}</td>`).join('') + '</tr>').join('') + '</tbody></table>' };
+    }
+    if (kind === 'image') {
+      const small = await shrinkImage(file);
+      const id = uid('img');
+      await putImage(id, small);
+      const dataUrl = await new Promise(r => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(small); });
+      return { html: `<img data-pimg="${id}" alt="${esc(file.name)}">`, image: dataUrl, note: '사진이라 글자는 AI 정리본에서 읽어 줘요.' };
+    }
+    if (kind === 'hwp') throw new Error('한글(.hwp) 파일은 바로 읽을 수 없어요. 한글에서 PDF나 Word(.docx)로 저장해서 올려 주세요.');
+    if (kind === 'old') throw new Error('옛 형식(.doc/.ppt)이에요. .docx나 .pptx로 다시 저장해서 올려 주세요.');
+    throw new Error('지원하지 않는 파일 형식이에요.');
+  }
+
+  async function aiOrganize(name, ex) {
+    const text = htmlToText(ex.html || '');
+    const cut = text.length > AI_IMPORT_CHARS;
+    const rules = `다음은 학생이 올린 자료 "${name}"${ex.image ? '(사진)' : ''}의 내용이야. 공부와 프로젝트에 쓰기 좋게 깔끔한 문서로 정리해 줘.
+규칙:
+- 자료에 없는 내용을 지어내지 말고, 중요한 내용은 빠뜨리지 마. ${ex.image ? '사진 속 글자를 먼저 정확히 읽어서 정리해.' : ''}
+- 첫 줄은 "# 문서 제목"
+- 그다음 줄은 "> 💡 한눈에 보기: " 로 시작하는 핵심 요약 2~3문장
+- 내용은 "## 소제목" 아래 "- 항목" 목록으로 정리하고, 비교·일정·수치가 있으면 마크다운 표(| 열 | 열 |)로 정리해
+- 자료에 할 일·준비물·과제가 있으면 "## 할 일" 아래 "- [ ] 항목" 체크리스트로
+- 중요한 낱말은 **굵게**
+- 어려운 낱말이 있으면 마지막에 "## 핵심 용어" 아래 "- **낱말**: 뜻" (없으면 생략)
+- 마크다운만 답해.`;
+    const content = ex.image
+      ? [{ type: 'text', text: rules }, { type: 'image_url', image_url: { url: ex.image } }]
+      : `${rules}\n\n---\n${text.slice(0, AI_IMPORT_CHARS)}`;
+    const md = await askAI([{ role: 'system', content: AI_SYSTEM }, { role: 'user', content }], 3500);
+    return { md, cut };
+  }
+
+  function createDoc(pid, title, emoji, html) {
+    const clean = sanitize(html) || '<p><br></p>';
+    const id = uid('doc');
+    data.docs.push({ id, projectId: pid, title: (title || '가져온 문서').slice(0, 120), emoji, html: clean, starred: false, trashed: false, goal: 0, chars: htmlToText(clean).replace(/\s/g, '').length, createdAt: Date.now(), updatedAt: Date.now() });
+    return id;
+  }
+
+  // 파일 고르기 상자 (끌어 놓기 지원). state: { files, ai, keep }
+  function fileUploader(state) {
+    const hasKey = !!localStorage.getItem('hs_openai_key');
+    state.files = state.files || [];
+    state.ai = hasKey;
+    state.keep = true;
+    const listEl = h('ul', { class: 'pj-up-list' });
+    const input = h('input', { type: 'file', multiple: true, accept: IMPORT_ACCEPT, hidden: true, onchange: () => { add([...input.files]); input.value = ''; } });
+    const drop = h('div', {
+      class: 'pj-drop', role: 'button', tabindex: '0', 'aria-label': '자료 파일 고르기',
+      onclick: () => input.click(),
+      onkeydown: e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } },
+      ondragover: e => { e.preventDefault(); drop.classList.add('is-over'); },
+      ondragleave: () => drop.classList.remove('is-over'),
+      ondrop: e => { e.preventDefault(); drop.classList.remove('is-over'); add([...e.dataTransfer.files]); },
+    },
+      h('span', { class: 'pj-drop-icon', 'aria-hidden': 'true' }, '📎'),
+      h('span', { class: 'pj-drop-title' }, '자료 파일을 끌어다 놓거나 눌러서 고르기'),
+      h('span', { class: 'pj-drop-sub' }, 'Word · PDF · PowerPoint · 텍스트·마크다운 · CSV · 사진 · 최대 5개'));
+    const aiBox = h('input', { type: 'checkbox', checked: state.ai, disabled: !hasKey, onchange: e => { state.ai = e.target.checked; } });
+    const keepBox = h('input', { type: 'checkbox', checked: true, onchange: e => { state.keep = e.target.checked; } });
+    const opts = h('div', { class: 'pj-up-opts', hidden: true },
+      h('label', { class: 'pj-up-opt' + (hasKey ? '' : ' is-off') }, aiBox, h('span', null, h('b', null, '✨ AI로 깔끔하게 정리한 문서 만들기'), h('small', null, hasKey ? '요약·소제목·표·할 일 체크리스트로 정리해요' : '설정에서 OpenAI 키를 저장하면 쓸 수 있어요'))),
+      h('label', { class: 'pj-up-opt' }, keepBox, h('span', null, h('b', null, '📎 뽑은 원본 내용도 문서로 남기기'), h('small', null, '파일 내용을 그대로 옮긴 문서예요'))));
+    function add(files) {
+      for (const f of files) {
+        const kind = fileKind(f);
+        if (!kind || kind === 'hwp' || kind === 'old') {
+          U.toast(kind === 'hwp' ? '한글(.hwp)은 PDF나 Word로 저장해서 올려 주세요.' : kind === 'old' ? '.doc/.ppt는 .docx/.pptx로 저장해서 올려 주세요.' : `'${f.name}'은(는) 지원하지 않는 형식이에요.`);
+          continue;
+        }
+        if (f.size > IMPORT_MAX_MB * 1024 * 1024) { U.toast(`'${f.name}'이(가) 너무 커요. (${IMPORT_MAX_MB}MB 이하)`); continue; }
+        if (state.files.length >= IMPORT_MAX_FILES) { U.toast(`한 번에 ${IMPORT_MAX_FILES}개까지 올릴 수 있어요.`); break; }
+        if (!state.files.some(x => x.name === f.name && x.size === f.size)) state.files.push(f);
+      }
+      draw();
+      if (state.onChange) state.onChange();
+    }
+    function draw() {
+      setKids(listEl, state.files.map((f, i) => {
+        const k = KINDS[fileKind(f)];
+        return h('li', { class: 'pj-up-item' },
+          h('span', { class: 'pj-up-kind' }, k.emoji, ' ', k.label),
+          h('span', { class: 'pj-up-name' }, f.name),
+          h('span', { class: 'pj-up-size' }, f.size > 1048576 ? `${(f.size / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(f.size / 1024))}KB`),
+          U.iconBtn('x', `${f.name} 빼기`, () => { state.files.splice(i, 1); draw(); if (state.onChange) state.onChange(); }));
+      }));
+      opts.hidden = !state.files.length;
+    }
+    return h('div', { class: 'pj-up' }, drop, input, listEl, opts);
+  }
+
+  // 파일들을 차례로 읽어서 문서로 만듦. 진행 상황은 창으로 보여 줌
+  async function importFiles(pid, files, { ai, keep }) {
+    const m = U.modal('자료 가져오기');
+    const rows = files.map(f => ({ f, st: h('span', { class: 'pj-imp-st' }, '기다리는 중') }));
+    const head = h('p', { class: 'sp-modal-text sp-muted' }, '파일에서 내용을 뽑고 있어요. 이 창을 닫아도 계속 진행돼요.');
+    m.setBody(head, h('ul', { class: 'pj-imp-list' }, rows.map(r => h('li', { class: 'pj-imp-row' },
+      h('span', { class: 'pj-imp-kind' }, KINDS[fileKind(r.f)].emoji), h('span', { class: 'pj-imp-name' }, r.f.name), r.st))));
+    m.setFooter(h('span', { class: 'sp-spacer' }), h('button', { type: 'button', class: 'sp-btn', onclick: () => m.close() }, '닫고 계속하기'));
+    const created = [];
+    let ok = 0;
+    for (const r of rows) {
+      const set = (t, cls) => { r.st.textContent = t; r.st.className = 'pj-imp-st ' + (cls || ''); };
+      const base = r.f.name.replace(/\.[^.]+$/, '');
+      const emoji = KINDS[fileKind(r.f)].emoji;
+      try {
+        set('내용 뽑는 중…', 'is-run');
+        const ex = await extractFile(r.f);
+        let originalId = null;
+        const makeOriginal = () => {
+          originalId = createDoc(pid, `${base}`, emoji, `<div class="pj-callout">📎 '${esc(r.f.name)}' 파일에서 뽑은 원본 내용이에요.${ex.note ? ' ' + esc(ex.note) : ''}</div>${ex.html}`);
+          created.push(originalId);
+        };
+        if (keep || !ai) makeOriginal();
+        save();
+        if (ai) {
+          set('AI가 정리하는 중…', 'is-run');
+          try {
+            const { md, cut } = await aiOrganize(r.f.name, ex);
+            const title = ((md.match(/^#\s+(.+)$/m) || [])[1] || `${base} 정리`).trim();
+            const body = textToHtml(md.replace(/^#\s+.+\n?/m, ''));
+            const note = `<p><i>📎 '${esc(r.f.name)}'을(를) AI가 정리했어요.${cut ? ' 자료가 길어서 앞부분만 정리했어요. 전체 내용은 원본 문서에 있어요.' : ''} 틀린 곳이 없는지 원본과 한 번 비교해 보세요.</i></p>`;
+            created.push(createDoc(pid, title, '✨', body + note));
+            save();
+            set(keep ? '원본 + 정리본 완료' : '정리본 완료', 'is-ok');
+          } catch (err) {
+            if (!originalId) { makeOriginal(); save(); }
+            set(`원본만 가져왔어요 · ${err.message}`, 'is-warn');
+            ok++;
+            continue;
+          }
+        } else set('완료', 'is-ok');
+        ok++;
+      } catch (err) {
+        set(err.message, 'is-err');
+      }
+    }
+    touch(pid);
+    save();
+    if (route.view !== 'editor') render();
+    if (!m.closed) {
+      head.textContent = ok ? `${files.length}개 중 ${ok}개를 가져왔어요.` : '가져오지 못했어요. 파일을 확인해 주세요.';
+      m.setFooter(h('span', { class: 'sp-spacer' }),
+        h('button', { type: 'button', class: 'sp-btn', onclick: () => m.close() }, '닫기'),
+        created.length > 0 && h('button', { type: 'button', class: 'sp-btn sp-btn-primary', 'data-autofocus': true, onclick: () => { m.close(); go({ view: 'editor', projectId: pid, docId: created[created.length - 1] }); } }, ai ? '정리된 문서 열기' : '가져온 문서 열기'));
+    } else {
+      U.toast(ok ? `📎 자료 ${ok}개를 문서로 가져왔어요.` : '자료를 가져오지 못했어요.');
+    }
+    return created;
+  }
+
+  function openImport(pid) {
+    const m = U.modal('자료 파일에서 문서 만들기');
+    const state = {};
+    const go2 = () => {
+      if (!state.files.length) { U.toast('파일을 먼저 골라 주세요.'); return; }
+      if (!state.ai && !state.keep) { U.toast('원본이나 AI 정리본 중 하나는 골라 주세요.'); return; }
+      m.close();
+      importFiles(pid, state.files.slice(), { ai: state.ai, keep: state.keep });
+    };
+    m.setBody(h('p', { class: 'sp-modal-text sp-muted' }, '파일 속 내용을 뽑아서 이 프로젝트의 문서로 만들어요.'), fileUploader(state));
+    m.setFooter(h('span', { class: 'sp-spacer' }), h('button', { type: 'button', class: 'sp-btn', onclick: () => m.close() }, '취소'), h('button', { type: 'button', class: 'sp-btn sp-btn-primary', onclick: go2 }, '가져오기'));
   }
 
   /* ---------- 편집기 화면 ---------- */
